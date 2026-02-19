@@ -54,6 +54,7 @@ class EvalResult:
     c2st: float
     mmd: float
     method: str = "npepfn_misspec"
+    seed: int = 42
 
     def to_dict(self):
         return asdict(self)

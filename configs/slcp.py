@@ -1,11 +1,11 @@
-"""Task-specific config for two_moons."""
+"""Task-specific config for slcp."""
 
 import ml_collections
 
 
 def get_config():
     config = ml_collections.ConfigDict()
-    config.task = "two_moons"
+    config.task = "slcp"
     config.misspec_type = "additive_noise"
     config.misspec_kwargs = {}
     config.num_simulations = 1000

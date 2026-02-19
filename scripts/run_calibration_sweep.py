@@ -20,22 +20,28 @@ def main(_):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     calib_sizes = [10, 50, 200, 1000]
+    seeds = list(getattr(cfg, "seeds", [cfg.seed]))
     all_results = {}
 
     for n_calib in calib_sizes:
-        print(f"\n--- num_calibration = {n_calib} ---")
-        all_results[n_calib] = evaluate_calibrated_misspecification(
-            task_name=cfg.task,
-            misspec_type=cfg.misspec_type,
-            misspec_kwargs=dict(cfg.misspec_kwargs),
-            num_simulations=cfg.num_simulations,
-            num_calibration=n_calib,
-            num_posterior_samples=cfg.num_posterior_samples,
-            num_observations=cfg.num_observations,
-            num_synthetic=cfg.num_synthetic,
-            seed=cfg.seed,
-            use_prior_transform=cfg.use_prior_transform,
-        )
+        all_results[n_calib] = []
+        for seed in seeds:
+            print(f"\n--- num_calibration = {n_calib}, seed = {seed} ---")
+            results = evaluate_calibrated_misspecification(
+                task_name=cfg.task,
+                misspec_type=cfg.misspec_type,
+                misspec_kwargs=dict(cfg.misspec_kwargs),
+                num_simulations=cfg.num_simulations,
+                num_calibration=n_calib,
+                num_posterior_samples=cfg.num_posterior_samples,
+                num_observations=cfg.num_observations,
+                num_synthetic=cfg.num_synthetic,
+                seed=seed,
+                use_prior_transform=cfg.use_prior_transform,
+            )
+            for r in results:
+                r.seed = seed
+            all_results[n_calib].extend(results)
 
     out_file = out_dir / f"{cfg.task}_{cfg.misspec_type}_sweep.json"
     serialized = {
