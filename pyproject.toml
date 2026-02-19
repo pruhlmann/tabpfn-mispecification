@@ -1,0 +1,16 @@
+[project]
+name = "tabpfn-misspec"
+version = "0.1.0"
+description = "Evaluate NPE-PFN under model misspecification on sbibm benchmarks"
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.basedpyright]
+venvPath = ".pixi/envs/"
+venv = "default"
+typeCheckingMode = "basic"
+reportAssignmentType = "none"
+
