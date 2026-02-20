@@ -13,10 +13,17 @@ from tabpfn_misspec.evaluate import EvalResult
 from tabpfn_misspec.metrics import c2st, mmd
 
 
+def _save_posterior(artifacts_dir, method, obs_idx, seed, samples):
+    """Save posterior samples to a .pt file."""
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(samples, artifacts_dir / f"{method}_seed{seed}_obs{obs_idx}.pt")
+
+
 def evaluate_npepfn_calib_only(
     task, theta_calib_t, y_calib, inverse, unbounded_prior,
     num_posterior_samples, num_observations,
     task_name, misspec_type, misspec_kwargs,
+    seed=42, artifacts_dir=None,
 ):
     """Baseline: NPE-PFN with only calibration (theta, y) as context.
 
@@ -46,6 +53,9 @@ def evaluate_npepfn_calib_only(
         ))
         t_inference = time.perf_counter() - t0
 
+        if artifacts_dir is not None:
+            _save_posterior(artifacts_dir, "npepfn_calib", obs_idx, seed, posterior_samples)
+
         result = EvalResult(
             task_name=task_name,
             misspec_type=misspec_type,
@@ -65,6 +75,7 @@ def evaluate_npepfn_calib_only(
 def evaluate_npe_sbi(
     task, prior, theta_calib, y_calib, num_posterior_samples, num_observations,
     task_name, misspec_type, misspec_kwargs,
+    seed=42, artifacts_dir=None,
 ):
     """Baseline: standard NPE from sbi trained on calibration data.
 
@@ -90,6 +101,9 @@ def evaluate_npe_sbi(
         posterior_samples = posterior.sample((num_posterior_samples,), x=y_obs)
         t_inference = time.perf_counter() - t0
 
+        if artifacts_dir is not None:
+            _save_posterior(artifacts_dir, "npe_sbi", obs_idx, seed, posterior_samples)
+
         result = EvalResult(
             task_name=task_name,
             misspec_type=misspec_type,
@@ -110,6 +124,7 @@ def evaluate_npepfn_y_fmpe(
     task, prior, theta_calib, x_calib, y_calib,
     misspec_simulator, num_synthetic, num_posterior_samples, num_observations,
     task_name, misspec_type, misspec_kwargs,
+    seed=42, artifacts_dir=None,
 ):
     """Two-stage method: TabPFN y-corrector + FMPE posterior.
 
@@ -136,12 +151,22 @@ def evaluate_npepfn_y_fmpe(
     """
     # Stage 1: build y-predictor from calibration data
     y_predictor = build_y_predictor(theta_calib, x_calib, y_calib)
+    train_features = torch.cat([theta_calib, x_calib], dim=1)
+
+    # Save y-diagnostics: predicted vs true y on calibration set
+    if artifacts_dir is not None:
+        y_pred = generate_synthetic_y(y_predictor, theta_calib, x_calib, train_features=train_features)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {"y_pred": y_pred, "y_true": y_calib, "theta_calib": theta_calib, "x_calib": x_calib},
+            artifacts_dir / f"y_diag_seed{seed}.pt",
+        )
 
     # Stage 2: generate synthetic dataset
     theta_syn = prior.sample((num_synthetic,))
     x_syn = misspec_simulator(theta_syn)
     t0 = time.perf_counter()
-    y_tilde = generate_synthetic_y(y_predictor, theta_syn, x_syn)
+    y_tilde = generate_synthetic_y(y_predictor, theta_syn, x_syn, train_features=train_features)
     t_gen = time.perf_counter() - t0
     print(f"  [npepfn_y_fmpe] generated {num_synthetic} synthetic samples in {t_gen:.1f}s")
 
@@ -163,6 +188,9 @@ def evaluate_npepfn_y_fmpe(
         t0 = time.perf_counter()
         posterior_samples = posterior.sample((num_posterior_samples,), x=y_obs)
         t_inference = time.perf_counter() - t0
+
+        if artifacts_dir is not None:
+            _save_posterior(artifacts_dir, "npepfn_y_fmpe", obs_idx, seed, posterior_samples)
 
         result = EvalResult(
             task_name=task_name,

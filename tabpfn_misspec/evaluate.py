@@ -1,6 +1,7 @@
 """Core evaluation loop for misspecification experiments."""
 
 import time
+import warnings
 from dataclasses import asdict, dataclass
 
 import sbibm
@@ -10,6 +11,12 @@ from npe_pfn import TabPFN_Based_NPE_PFN
 
 from tabpfn_misspec.metrics import c2st, mmd
 from tabpfn_misspec.simulators import get_misspecified_simulator
+
+
+def _save_posterior(artifacts_dir, method, obs_idx, seed, samples):
+    """Save posterior samples to a .pt file."""
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(samples, artifacts_dir / f"{method}_seed{seed}_obs{obs_idx}.pt")
 
 
 def get_parameter_transform(prior):
@@ -54,6 +61,7 @@ class EvalResult:
     c2st: float
     mmd: float
     method: str = "npepfn_misspec"
+    seed: int = 42
 
     def to_dict(self):
         return asdict(self)
@@ -143,6 +151,7 @@ def evaluate_calibrated_misspecification(
     num_synthetic=1000,
     seed=42,
     use_prior_transform=True,
+    artifacts_dir=None,
 ):
     """Run calibrated misspecification evaluation comparing 5 methods.
 
@@ -163,6 +172,7 @@ def evaluate_calibrated_misspecification(
         num_observations: Number of sbibm observations to evaluate.
         num_synthetic: Number of synthetic (theta, ỹ) pairs for y-corrector method.
         seed: Random seed.
+        artifacts_dir: If set, save posterior samples as .pt files.
 
     Returns:
         List of EvalResult with method field set per method.
@@ -214,6 +224,9 @@ def evaluate_calibrated_misspecification(
             sample_shape=torch.Size([num_posterior_samples]), x=y_obs,
         ))
         t_inference = time.perf_counter() - t0
+        if artifacts_dir is not None:
+            _save_posterior(artifacts_dir, "npepfn_misspec", obs_idx, seed, posterior_samples)
+            _save_posterior(artifacts_dir, "reference", obs_idx, seed, ref_samples)
         result = EvalResult(
             task_name=task_name, misspec_type=misspec_type,
             misspec_kwargs=misspec_kwargs, num_observation=obs_idx,
@@ -225,51 +238,81 @@ def evaluate_calibrated_misspecification(
         all_results.append(result)
         print(f"  [npepfn_misspec] obs {obs_idx}: C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}, inference={t_inference:.1f}s")
 
+    def _nan_results(method, reason):
+        """Generate NaN results for a failed method."""
+        warnings.warn(f"[{method}] failed: {reason}")
+        return [
+            EvalResult(
+                task_name=task_name, misspec_type=misspec_type,
+                misspec_kwargs=misspec_kwargs, num_observation=obs_idx,
+                num_simulations=num_simulations,
+                c2st=float("nan"), mmd=float("nan"), method=method,
+            )
+            for obs_idx in range(1, num_observations + 1)
+        ]
+
     # --- Method 2: NPE-PFN (calibration only) ---
     print("Running npepfn_calib...")
-    all_results.extend(evaluate_npepfn_calib_only(
-        task, theta_calib_t, y_calib, inverse, est_prior,
-        num_posterior_samples, num_observations,
-        task_name, misspec_type, misspec_kwargs,
-    ))
+    try:
+        all_results.extend(evaluate_npepfn_calib_only(
+            task, theta_calib_t, y_calib, inverse, est_prior,
+            num_posterior_samples, num_observations,
+            task_name, misspec_type, misspec_kwargs,
+            seed=seed, artifacts_dir=artifacts_dir,
+        ))
+    except (ValueError, RuntimeError) as e:
+        all_results.extend(_nan_results("npepfn_calib", e))
 
     # --- Method 3: NPE-PFN (mixed, ours) ---
     print("Running npepfn_mixed...")
-    estimator_mixed = build_calibrated_estimator(
-        theta_sim_t, x_sim, theta_calib_t, x_calib, y_calib, est_prior,
-    )
-    for obs_idx in range(1, num_observations + 1):
-        y_obs = task.get_observation(obs_idx)
-        ref_samples = task.get_reference_posterior_samples(obs_idx)
-        t0 = time.perf_counter()
-        posterior_samples = inverse(sample_calibrated(
-            estimator_mixed, y_obs, dim_x, num_posterior_samples,
-        ))
-        t_inference = time.perf_counter() - t0
-        result = EvalResult(
-            task_name=task_name, misspec_type=misspec_type,
-            misspec_kwargs=misspec_kwargs, num_observation=obs_idx,
-            num_simulations=num_simulations,
-            c2st=float(c2st(posterior_samples, ref_samples)),
-            mmd=float(mmd(posterior_samples, ref_samples)),
-            method="npepfn_mixed",
+    try:
+        estimator_mixed = build_calibrated_estimator(
+            theta_sim_t, x_sim, theta_calib_t, x_calib, y_calib, est_prior,
         )
-        all_results.append(result)
-        print(f"  [npepfn_mixed] obs {obs_idx}: C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}, inference={t_inference:.1f}s")
+        for obs_idx in range(1, num_observations + 1):
+            y_obs = task.get_observation(obs_idx)
+            ref_samples = task.get_reference_posterior_samples(obs_idx)
+            t0 = time.perf_counter()
+            posterior_samples = inverse(sample_calibrated(
+                estimator_mixed, y_obs, dim_x, num_posterior_samples,
+            ))
+            t_inference = time.perf_counter() - t0
+            if artifacts_dir is not None:
+                _save_posterior(artifacts_dir, "npepfn_mixed", obs_idx, seed, posterior_samples)
+            result = EvalResult(
+                task_name=task_name, misspec_type=misspec_type,
+                misspec_kwargs=misspec_kwargs, num_observation=obs_idx,
+                num_simulations=num_simulations,
+                c2st=float(c2st(posterior_samples, ref_samples)),
+                mmd=float(mmd(posterior_samples, ref_samples)),
+                method="npepfn_mixed",
+            )
+            all_results.append(result)
+            print(f"  [npepfn_mixed] obs {obs_idx}: C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}, inference={t_inference:.1f}s")
+    except (ValueError, RuntimeError) as e:
+        all_results.extend(_nan_results("npepfn_mixed", e))
 
     # --- Method 4: NPE (sbi) ---
     print("Running npe_sbi...")
-    all_results.extend(evaluate_npe_sbi(
-        task, prior, theta_calib, y_calib, num_posterior_samples, num_observations,
-        task_name, misspec_type, misspec_kwargs,
-    ))
+    try:
+        all_results.extend(evaluate_npe_sbi(
+            task, prior, theta_calib, y_calib, num_posterior_samples, num_observations,
+            task_name, misspec_type, misspec_kwargs,
+            seed=seed, artifacts_dir=artifacts_dir,
+        ))
+    except (ValueError, RuntimeError) as e:
+        all_results.extend(_nan_results("npe_sbi", e))
 
     # --- Method 5: TabPFN y-corrector + FMPE ---
     print("Running npepfn_y_fmpe...")
-    all_results.extend(evaluate_npepfn_y_fmpe(
-        task, prior, theta_calib, x_calib, y_calib,
-        misspec_simulator, num_synthetic, num_posterior_samples, num_observations,
-        task_name, misspec_type, misspec_kwargs,
-    ))
+    try:
+        all_results.extend(evaluate_npepfn_y_fmpe(
+            task, prior, theta_calib, x_calib, y_calib,
+            misspec_simulator, num_synthetic, num_posterior_samples, num_observations,
+            task_name, misspec_type, misspec_kwargs,
+            seed=seed, artifacts_dir=artifacts_dir,
+        ))
+    except (ValueError, RuntimeError) as e:
+        all_results.extend(_nan_results("npepfn_y_fmpe", e))
 
     return all_results
