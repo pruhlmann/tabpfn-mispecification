@@ -15,4 +15,5 @@ def get_config():
     config.num_calibration = 10
     config.num_synthetic = 5
     config.use_prior_transform = True
+    config.seeds = [42, 123]
     return config

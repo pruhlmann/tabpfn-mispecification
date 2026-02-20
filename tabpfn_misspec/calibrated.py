@@ -79,7 +79,7 @@ def build_y_predictor(theta_calib, x_calib, y_calib):
     return estimator
 
 
-def generate_synthetic_y(y_predictor, theta, x):
+def generate_synthetic_y(y_predictor, theta, x, train_features=None):
     """Generate synthetic y samples using the y-predictor.
 
     Uses batched sampling to get one ỹ per (theta_i, x_i) in a single call.
@@ -88,11 +88,19 @@ def generate_synthetic_y(y_predictor, theta, x):
         y_predictor: TabPFN estimator from build_y_predictor.
         theta: Parameter values, shape (N, dim_theta).
         x: Misspecified simulator outputs, shape (N, dim_x).
+        train_features: Training features used to fit y_predictor, shape (N_calib, D).
+            If provided, query features are clipped to the training range to avoid
+            overflow in TabPFN's internal preprocessing.
 
     Returns:
         Synthetic y values, shape (N, dim_y).
     """
     query = torch.cat([theta, x], dim=1)
+    if train_features is not None:
+        feat_min = train_features.min(dim=0).values
+        feat_max = train_features.max(dim=0).values
+        margin = (feat_max - feat_min) * 0.1 + 1e-6
+        query = query.clamp(feat_min - margin, feat_max + margin)
     # sample_batched returns shape (N, 1, dim_y)
     y_tilde = y_predictor.sample_batched(x=query, sample_shape=torch.Size([1]))
     return y_tilde.squeeze(1)
