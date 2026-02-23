@@ -12,6 +12,7 @@ from tabpfn_misspec.plotting import (
     plot_calibration_comparison_seeds,
     plot_posterior_pairplot,
     plot_sweep_figure,
+    plot_synthetic_y_scatter,
     plot_y_diagnostics,
 )
 
@@ -91,6 +92,10 @@ def main(_):
                 y_true = data["y_true"].numpy()
                 out_path = output_dir / task_name / "y_diagnostics" / f"{run_tag}.pdf"
                 plot_y_diagnostics(y_pred, y_true, output_path=out_path)
+
+                # Spatial scatter
+                scatter_path = output_dir / task_name / "y_scatter" / f"{run_tag}.pdf"
+                plot_synthetic_y_scatter(y_pred, y_true, output_path=scatter_path)
 
 
 if __name__ == "__main__":

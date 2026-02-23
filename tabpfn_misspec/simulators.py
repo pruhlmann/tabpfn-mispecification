@@ -1,5 +1,7 @@
 """Misspecified simulator registry for sbibm tasks."""
 
+import math
+
 import sbibm
 from sbibm.tasks.gaussian_mixture.task import GaussianMixture
 import torch
@@ -50,6 +52,35 @@ def _one_gaussian(task_name, mean=0.0, std=1.0):
     return misspecified_simulator
 
 
+def _heavy_tail_radius(task_name, df=2):
+    """Two Moons simulator with Student-t radius instead of Gaussian.
+
+    Inlines the sbibm Two Moons logic (rotation by -pi/4, abs shift) but
+    replaces r ~ Normal(0.1, 0.01) with r ~ StudentT(df, 0.1, 0.01).
+    """
+    if task_name != "two_moons":
+        raise ValueError(
+            f"_heavy_tail_radius is only defined for 'two_moons', got '{task_name}'"
+        )
+
+    ang = torch.tensor([-math.pi / 4.0])
+    c = torch.cos(ang)
+    s = torch.sin(ang)
+
+    def misspecified_simulator(theta):
+        n = theta.shape[0]
+        a = pdist.Uniform(-math.pi / 2.0, math.pi / 2.0).sample((n, 1))
+        r = pdist.StudentT(df, 0.1, 0.01).sample((n, 1))
+        p = torch.cat([torch.cos(a) * r + 0.25, torch.sin(a) * r], dim=1)
+
+        # Rotate theta by -pi/4 and apply abs-shift (sbibm _map_fun)
+        z0 = (c * theta[:, 0] - s * theta[:, 1]).reshape(-1, 1)
+        z1 = (s * theta[:, 0] + c * theta[:, 1]).reshape(-1, 1)
+        return p + torch.cat([-torch.abs(z0), z1], dim=1)
+
+    return misspecified_simulator
+
+
 _REGISTRY = {
     # Generic (any task)
     "additive_noise": _additive_noise,
@@ -57,6 +88,7 @@ _REGISTRY = {
     # Task-specific entries use (task_name, misspec_type) keys:
     # ("two_moons", "wrong_likelihood"): _two_moons_wrong_likelihood,
     ("gaussian_mixture", "one_gaussian"): _one_gaussian,
+    ("two_moons", "heavy_tail_radius"): _heavy_tail_radius,
 }
 
 

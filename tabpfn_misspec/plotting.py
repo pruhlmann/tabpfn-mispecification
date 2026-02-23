@@ -301,6 +301,83 @@ def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, ou
     return fig
 
 
+def plot_synthetic_y_scatter(y_pred, y_true, output_path=None):
+    """Spatial scatter of predicted vs true y samples, overlaid.
+
+    Args:
+        y_pred: (N, D) numpy array of predicted y values.
+        y_true: (N, D) numpy array of true y values.
+        output_path: If set, save figure to this path.
+    """
+    _apply_rc()
+    D = y_true.shape[1]
+    max_pts = 500
+    true_color = "#999999"
+    pred_color = "#AA3377"
+
+    if D == 2:
+        fig, ax = plt.subplots(figsize=(3.0, 3.0))
+        idx_t = np.random.choice(len(y_true), size=min(max_pts, len(y_true)), replace=False)
+        idx_p = np.random.choice(len(y_pred), size=min(max_pts, len(y_pred)), replace=False)
+        ax.scatter(y_true[idx_t, 0], y_true[idx_t, 1],
+                   c=true_color, s=4, alpha=0.3, rasterized=True, label="True")
+        ax.scatter(y_pred[idx_p, 0], y_pred[idx_p, 1],
+                   c=pred_color, s=4, alpha=0.3, rasterized=True, label="Predicted")
+        ax.set_xlabel(r"$y_1$")
+        ax.set_ylabel(r"$y_2$")
+        ax.legend(frameon=False, fontsize=6, markerscale=2)
+        fig.tight_layout()
+    else:
+        # Lower-triangle pairwise grid
+        fig, axes = plt.subplots(D, D, figsize=(1.5 * D, 1.5 * D))
+        if D == 1:
+            axes = np.array([[axes]])
+        idx_t = np.random.choice(len(y_true), size=min(max_pts, len(y_true)), replace=False)
+        idx_p = np.random.choice(len(y_pred), size=min(max_pts, len(y_pred)), replace=False)
+
+        for i in range(D):
+            for j in range(D):
+                ax = axes[i, j]
+                if j > i:
+                    ax.set_visible(False)
+                    continue
+                if i == j:
+                    # Diagonal: overlaid KDE
+                    lo = min(float(y_true[:, i].min()), float(y_pred[:, i].min()))
+                    hi = max(float(y_true[:, i].max()), float(y_pred[:, i].max()))
+                    grid = np.linspace(lo, hi, 200)
+                    kde_t = gaussian_kde(y_true[:, i])
+                    kde_p = gaussian_kde(y_pred[:, i])
+                    ax.plot(grid, kde_t(grid), color=true_color, lw=1.2, label="True")
+                    ax.plot(grid, kde_p(grid), color=pred_color, lw=1.0, label="Predicted")
+                    ax.set_yticks([])
+                else:
+                    ax.scatter(y_true[idx_t, j], y_true[idx_t, i],
+                               c=true_color, s=3, alpha=0.15, rasterized=True, label="True")
+                    ax.scatter(y_pred[idx_p, j], y_pred[idx_p, i],
+                               c=pred_color, s=3, alpha=0.15, rasterized=True, label="Predicted")
+
+                if i == D - 1:
+                    ax.set_xlabel(rf"$y_{{{j+1}}}$")
+                else:
+                    ax.set_xticklabels([])
+                if j == 0 and i != 0:
+                    ax.set_ylabel(rf"$y_{{{i+1}}}$")
+                elif j != 0:
+                    ax.set_yticklabels([])
+
+        handles, labels = axes[0, 0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="upper right", frameon=False, fontsize=6)
+        fig.subplots_adjust(hspace=0.1, wspace=0.1)
+
+    if output_path is not None:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, bbox_inches="tight")
+        print(f"Saved {output_path}")
+    plt.close(fig)
+    return fig
+
+
 def plot_y_diagnostics(y_pred, y_true, output_path=None):
     """Scatter of predicted vs true y with y=x diagonal and Pearson r.
 
