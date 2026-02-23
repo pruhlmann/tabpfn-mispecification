@@ -40,6 +40,7 @@ def main(_):
                 seed=seed,
                 use_prior_transform=cfg.use_prior_transform,
                 artifacts_dir=artifacts_path,
+                skip_methods=list(cfg.get("skip_methods", [])),
             )
             for r in results:
                 r.seed = seed

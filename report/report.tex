@@ -1,0 +1,268 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[caption=false]{subfig}
+
+\title{Simulation-Based Inference under Model Misspecification\\with TabPFN}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%% ============================================================
+\section{Introduction}
+%% ============================================================
+
+Simulation-based inference (SBI) methods estimate posterior distributions
+$p(\theta \mid x_{\mathrm{obs}})$ when the likelihood is intractable but a
+simulator $p(x \mid \theta)$ is available.
+A fundamental challenge arises when the simulator is \emph{misspecified}:
+the true data-generating process differs from the assumed model, so the
+simulated data distribution does not match the real observations.
+Standard neural posterior estimation (NPE) methods can produce
+overconfident or biased posteriors under such misspecification.
+
+In this report we evaluate five approaches for posterior inference under
+controlled misspecification across four benchmark tasks.
+Our main contribution is a \emph{mixed-context} strategy
+(NPE-PFN Mixed) that combines a small calibration dataset of
+$(\theta, x)$ pairs from the true process with simulated data from the
+misspecified model, leveraging TabPFN's in-context learning ability.
+
+%% ============================================================
+\section{Methods}
+%% ============================================================
+
+We compare five methods.  All NPE-PFN variants use TabPFN as the
+amortised density estimator.
+
+\begin{description}
+  \item[NPE-PFN Misspec.]
+    TabPFN conditioned only on simulated data from the misspecified
+    model. No calibration data is used. This isolates the effect of
+    misspecification.
+
+  \item[NPE-PFN Calib.]
+    TabPFN conditioned only on the calibration dataset
+    $\{(\theta_i, x_i)\}_{i=1}^{n_{\mathrm{calib}}}$ drawn from the
+    true process. No simulation data is used.
+
+  \item[NPE-PFN Mixed (ours)]
+    TabPFN with a mixed context: simulated rows are formatted as
+    $(x_{\mathrm{sim}},\, \texttt{NaN})$ and calibration rows as
+    $(x_{\mathrm{calib}},\, y_{\mathrm{calib}})$.
+    At inference the query is $(\texttt{NaN},\, y_{\mathrm{obs}})$.
+    This lets the model leverage both data sources simultaneously.
+
+  \item[NPE (sbi)]
+    A standard NPE baseline using a neural spline flow, trained on the
+    calibration data via the \texttt{sbi} library.
+
+  \item[NPE-PFN + FMPE]
+    A two-stage method: (1)~a TabPFN $y$-corrector predicts $y$ from
+    $(\theta, x)$, then (2)~FMPE is trained on synthetic
+    $(\theta, \tilde y)$ pairs.  Skipped for SIR due to the
+    computational cost of generating simulations through the ODE solver.
+\end{description}
+
+\subsection{Metrics}
+
+We evaluate posterior quality with two complementary metrics.
+
+\paragraph{C2ST (Classifier Two-Sample Test).}
+A multi-layer perceptron is trained to distinguish approximate posterior
+samples from reference samples using 5-fold cross-validation.
+The reported accuracy lies in $[0.5, 1.0]$; a value of $0.5$
+indicates identical distributions (chance level).
+Lower is better.
+
+\paragraph{MMD (Maximum Mean Discrepancy).}
+The unbiased estimator of $\mathrm{MMD}^2$ with a Gaussian RBF kernel,
+whose bandwidth is set via the median heuristic over pooled samples.
+A value of $0$ indicates identical distributions.
+Lower is better.
+
+\subsection{Experimental setup}
+
+For each task we draw $n_{\mathrm{sim}} = 5{,}000$ simulations from the
+misspecified model ($10{,}000$ for SIR) and sweep the calibration set
+size $n_{\mathrm{calib}} \in \{10, 50, 200, 1000\}$.
+All results are averaged over 5 random seeds and 3 test observations
+from the \texttt{sbibm} reference set.
+Each method produces $n_{\mathrm{posterior}} = 1{,}000$ posterior
+samples per observation.
+
+%% ============================================================
+\section{Benchmark Tasks}
+%% ============================================================
+
+% --------------------------------------------------
+\subsection{Gaussian Mixture}
+% --------------------------------------------------
+
+The Gaussian Mixture task defines a two-component mixture model.
+Parameters control the location factors and a mixture index.
+The \textbf{one\_gaussian} misspecification replaces the mixture with a
+single Gaussian using only the first component's location factor,
+discarding the second component entirely:
+\[
+  x \sim \mathcal{N}\!\bigl(\mathrm{loc\_factor}_1 \cdot \theta,\;
+  \sigma^2 I\bigr).
+\]
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{../results/gaussian_mixture_one_gaussian/sweep_avg.pdf}
+  \caption{Gaussian Mixture (one\_gaussian misspec): C2ST and MMD vs.\
+    calibration set size, averaged over seeds and observations.}
+  \label{fig:gm-sweep}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \subfloat[Posterior pairplot]{%
+    \includegraphics[width=0.48\textwidth]{../results/gaussian_mixture_one_gaussian/pairplots/ncalib50_seed42_obs1.pdf}%
+    \label{fig:gm-pairplot}%
+  }\hfill
+  \subfloat[$y$-scatter diagnostic]{%
+    \includegraphics[width=0.48\textwidth]{../results/gaussian_mixture_one_gaussian/y_scatter/ncalib50_seed42.pdf}%
+    \label{fig:gm-yscatter}%
+  }
+  \caption{Gaussian Mixture: (a) posterior pairplot and (b) $y$-scatter
+    diagnostic at $n_{\mathrm{calib}}=50$, seed 42, observation 1.}
+\end{figure}
+
+% --------------------------------------------------
+\subsection{Two Moons}
+% --------------------------------------------------
+
+The Two Moons task generates data from a crescent-shaped distribution.
+The \textbf{heavy\_tail\_radius} misspecification replaces the Gaussian
+radial noise $r \sim \mathcal{N}(0.1, 0.01)$ with a Student-$t$
+distribution $r \sim t_\nu(0.1, 0.01)$ with $\nu = 2$ degrees of
+freedom, introducing heavier tails.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{../results/two_moons_heavy_tail_radius/sweep_avg.pdf}
+  \caption{Two Moons (heavy\_tail\_radius misspec): C2ST and MMD vs.\
+    calibration set size.}
+  \label{fig:tm-sweep}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \subfloat[Posterior pairplot]{%
+    \includegraphics[width=0.48\textwidth]{../results/two_moons_heavy_tail_radius/pairplots/ncalib50_seed42_obs1.pdf}%
+    \label{fig:tm-pairplot}%
+  }\hfill
+  \subfloat[$y$-scatter diagnostic]{%
+    \includegraphics[width=0.48\textwidth]{../results/two_moons_heavy_tail_radius/y_scatter/ncalib50_seed42.pdf}%
+    \label{fig:tm-yscatter}%
+  }
+  \caption{Two Moons: (a) posterior pairplot and (b) $y$-scatter
+    diagnostic at $n_{\mathrm{calib}}=50$, seed 42, observation 1.}
+\end{figure}
+
+% --------------------------------------------------
+\subsection{SLCP}
+% --------------------------------------------------
+
+The SLCP (Simple Likelihood Complex Posterior) task produces 8-dimensional
+observations from a 5-dimensional parameter space.
+The \textbf{additive\_noise} misspecification adds i.i.d.\ Gaussian noise
+to each output dimension:
+\[
+  x_{\mathrm{misspec}} = x_{\mathrm{true}} +
+  \mathcal{N}(0,\, \sigma_{\mathrm{noise}}^2 I),
+  \quad \sigma_{\mathrm{noise}} = 0.5.
+\]
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{../results/slcp_additive_noise/sweep_avg.pdf}
+  \caption{SLCP (additive\_noise misspec): C2ST and MMD vs.\
+    calibration set size.}
+  \label{fig:slcp-sweep}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.55\textwidth]{../results/slcp_additive_noise/pairplots/ncalib50_seed42_obs1.pdf}
+  \caption{SLCP: posterior pairplot at $n_{\mathrm{calib}}=50$, seed 42,
+    observation 1.}
+  \label{fig:slcp-pairplot}
+\end{figure}
+
+% --------------------------------------------------
+\subsection{SIR}
+% --------------------------------------------------
+
+The SIR task models an epidemic via a susceptible--infected--recovered
+ODE with parameters for the infection rate $\beta$, recovery rate
+$\gamma$, and initial infected fraction.
+Observations are daily infection counts with Binomial observation noise.
+
+The \textbf{weekend\_delay} misspecification (Ward et al., 2022)
+simulates reporting delays: a fraction of Saturday and Sunday infection
+counts is shifted to the following Monday.
+The delay fraction is set to $0.05$.
+This produces characteristic underreporting on weekends with a Monday
+catch-up spike.
+
+The NPE-PFN+FMPE method is skipped for this task because generating
+$10{,}000$ synthetic $y$-values through the ODE solver is
+prohibitively expensive.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{../results/sir_weekend_delay/sweep_avg.pdf}
+  \caption{SIR (weekend\_delay misspec): C2ST and MMD vs.\
+    calibration set size.}
+  \label{fig:sir-sweep}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.55\textwidth]{../results/sir_weekend_delay/pairplots/ncalib50_seed42_obs1.pdf}
+  \caption{SIR: posterior pairplot at $n_{\mathrm{calib}}=50$, seed 42,
+    observation 1.}
+  \label{fig:sir-pairplot}
+\end{figure}
+
+%% ============================================================
+\section{Discussion}
+%% ============================================================
+
+Across all tasks, the NPE-PFN Misspec.\ baseline degrades substantially
+when the simulator departs from the true data-generating process,
+confirming that standard amortised inference is sensitive to
+misspecification.
+The calibration-only method (NPE-PFN Calib.) performs well when
+sufficient calibration data is available but is data-hungry.
+
+The mixed-context approach (NPE-PFN Mixed) consistently achieves
+competitive or superior performance, particularly in the low-data regime
+($n_{\mathrm{calib}} \leq 50$), by combining the inductive bias from
+simulations with the distributional correction from calibration data.
+This confirms the value of leveraging TabPFN's in-context learning to
+fuse heterogeneous data sources.
+
+The NPE (sbi) baseline, trained only on calibration data with a neural
+spline flow, generally requires more data to match the TabPFN-based
+methods.  The two-stage NPE-PFN+FMPE approach offers an alternative
+correction strategy but adds computational overhead and complexity.
+
+The SIR task introduces a more realistic misspecification
+(weekend reporting delays) with higher-dimensional observations.
+All methods struggle on this task, with C2ST values near $1.0$,
+indicating that the high-dimensional time-series observation space
+poses a significant challenge for posterior estimation under
+misspecification.
+
+\end{document}

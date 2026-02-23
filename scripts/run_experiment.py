@@ -32,6 +32,7 @@ def main(_):
         num_synthetic=cfg.num_synthetic,
         seed=cfg.seed,
         use_prior_transform=cfg.use_prior_transform,
+        skip_methods=list(cfg.get("skip_methods", [])),
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -52,6 +52,73 @@ def _one_gaussian(task_name, mean=0.0, std=1.0):
     return misspecified_simulator
 
 
+def _weekend_delay(task_name, delay_fraction=0.05):
+    """SIR simulator with weekend reporting delay (Ward et al., 2022).
+
+    Applies the misspecification to the raw daily ODE solution before
+    sbibm's subsampling and Binomial observation noise.  A fraction of
+    Saturday/Sunday infection counts is shifted to the following Monday.
+
+    Args:
+        delay_fraction: Fraction of weekend counts deferred to Monday.
+    """
+    if task_name != "sir":
+        raise ValueError(
+            f"_weekend_delay is only defined for 'sir', got '{task_name}'"
+        )
+    task = sbibm.get_task("sir")
+    N = task.N
+    total_count = task.total_count
+
+    def misspecified_simulator(theta):
+        num_samples = theta.shape[0]
+
+        us = []
+        for i in range(num_samples):
+            u, t = task.de(task.u0, task.tspan, theta[i, :])
+
+            if u.shape != torch.Size([3, int(task.dim_data_raw / 3)]):
+                u = float("nan") * torch.ones((3, int(task.dim_data_raw / 3)))
+                u = u.double()
+            us.append(u.reshape(1, 3, -1))
+        us = torch.cat(us).float()  # (num_samples, 3, 161)
+
+        # Extract infected compartment: (num_samples, 161)
+        infected = us[:, 1, :]
+
+        # Apply weekend delay on daily resolution
+        num_days = infected.shape[1]
+        sat_idx = list(range(5, num_days, 7))  # day 0 = Monday convention
+        sun_idx = list(range(6, num_days, 7))
+        mon_idx = list(range(7, num_days, 7))
+        # Pair each weekend with the following Monday; drop unpaired weekends
+        n_pairs = min(len(sat_idx), len(sun_idx), len(mon_idx))
+        sat_idx = sat_idx[:n_pairs]
+        sun_idx = sun_idx[:n_pairs]
+        mon_idx = mon_idx[:n_pairs]
+
+        missed_sat = infected[:, sat_idx] * delay_fraction
+        missed_sun = infected[:, sun_idx] * delay_fraction
+        infected[:, sat_idx] -= missed_sat
+        infected[:, sun_idx] -= missed_sun
+        infected[:, mon_idx] += missed_sat + missed_sun
+
+        # Subsample every 17 days (same as sbibm) and apply Binomial noise
+        nan_mask = torch.isnan(infected.reshape(num_samples, -1)).any(dim=1)
+        sub = infected[:, ::17]  # (num_samples, 10)
+        data = float("nan") * torch.ones((num_samples, 10))
+        ok = ~nan_mask
+        if ok.any():
+            probs = (sub[ok, :] / N).clamp(0.0, 1.0)
+            data[ok, :] = pyro.sample(
+                "data",
+                pdist.Binomial(total_count=total_count, probs=probs).to_event(1),
+            )
+        return data
+
+    return misspecified_simulator
+
+
 def _heavy_tail_radius(task_name, df=2):
     """Two Moons simulator with Student-t radius instead of Gaussian.
 
@@ -89,6 +156,7 @@ _REGISTRY = {
     # ("two_moons", "wrong_likelihood"): _two_moons_wrong_likelihood,
     ("gaussian_mixture", "one_gaussian"): _one_gaussian,
     ("two_moons", "heavy_tail_radius"): _heavy_tail_radius,
+    ("sir", "weekend_delay"): _weekend_delay,
 }
 
 
