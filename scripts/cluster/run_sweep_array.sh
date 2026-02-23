@@ -1,6 +1,6 @@
 #!/bin/bash
 #OAR -n tabpfn_sweep
-#OAR -l /nodes=1/gpu=1,walltime=12:00:00
+#OAR -l walltime=12:00:00
 #OAR -t besteffort
 #OAR -t idempotent
 #OAR --array 4
@@ -33,6 +33,6 @@ echo "Node: $(hostname)"
 echo "Array Index: $OAR_ARRAY_INDEX"
 echo "============================================================"
 
-pixi run sweep -- --config "$CONFIG" --output_dir "$RESULTS_DIR"
+/home/pruhlman/.pixi/bin/pixi run sweep --config "$CONFIG" --output_dir "$RESULTS_DIR"
 
 echo "Sweep for $CONFIG completed at $(date)"
