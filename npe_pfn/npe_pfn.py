@@ -18,9 +18,7 @@ warnings.filterwarnings(
     category=FutureWarning,
     message="`BaseEstimator._validate_data` is deprecated",
 )
-warnings.filterwarnings(
-    "ignore", category=FutureWarning, message="'force_all_finite' was renamed"
-)
+warnings.filterwarnings("ignore", category=FutureWarning, message="'force_all_finite' was renamed")
 
 
 class NPE_PFN_Core:
@@ -93,9 +91,7 @@ class NPE_PFN_Core:
         x = x.unsqueeze(0) if x.ndim == 1 else x
         assert x.ndim == 2, "x must be a 2D tensor."
         if self._x_train is not None:
-            assert (
-                x.shape[1] == self._x_train.shape[1]
-            ), "The number of features in x must match the training data."
+            assert x.shape[1] == self._x_train.shape[1], "The number of features in x must match the training data."
         return x
 
     def _validate_theta(self, theta: Tensor):
@@ -103,9 +99,9 @@ class NPE_PFN_Core:
         theta = theta.unsqueeze(0) if theta.ndim == 1 else theta
         assert theta.ndim == 2, "theta must be a 2D tensor."
         if self._theta_train is not None:
-            assert (
-                theta.shape[1] == self._theta_train.shape[1]
-            ), "The number of features in theta must match the training data."
+            assert theta.shape[1] == self._theta_train.shape[1], (
+                "The number of features in theta must match the training data."
+            )
         return theta
 
     def _sample(
@@ -140,15 +136,11 @@ class NPE_PFN_Core:
             self._model.fit(joint_data[:, :features_end], joint_data[:, target_idx])
 
             # Generate samples for current parameter
-            pred_dist = self._model.predict(
-                samples_batch, output_type="full", quantiles=[]
-            )
+            pred_dist = self._model.predict(samples_batch, output_type="full", quantiles=[])
             param_samples = pred_dist["criterion"].sample(pred_dist["logits"])
 
             if with_log_prob:
-                dim_log_prob = -pred_dist["criterion"](
-                    pred_dist["logits"], param_samples
-                )
+                dim_log_prob = -pred_dist["criterion"](pred_dist["logits"], param_samples)
 
                 dim_log_prob = torch.where(
                     dim_log_prob == float("-inf"),
@@ -266,12 +258,10 @@ class NPE_PFN_Core:
         log_probs = torch.zeros(theta.shape[0])
         for i in range(0, theta.shape[0], max_sampling_batch_size):
             if mode == "autoregressive":
-                log_probs[i : i + max_sampling_batch_size] = (
-                    self._autoregressive_log_prob(
-                        theta[i : i + max_sampling_batch_size],
-                        x,
-                        eps=eps,
-                    )
+                log_probs[i : i + max_sampling_batch_size] = self._autoregressive_log_prob(
+                    theta[i : i + max_sampling_batch_size],
+                    x,
+                    eps=eps,
                 )
             elif mode == "ratio_based":
                 log_probs[i : i + max_sampling_batch_size] = self._ratio_based_log_prob(
@@ -333,14 +323,10 @@ class NPE_PFN_Core:
             self._model.fit(joint_data[:, :features_end], joint_data[:, target_idx])
 
             # Get prediction distribution
-            pred_dist = self._model.predict(
-                test_joint[:, :features_end], output_type="full", quantiles=[]
-            )
+            pred_dist = self._model.predict(test_joint[:, :features_end], output_type="full", quantiles=[])
 
             # Compute log probability for this dimension
-            dim_log_prob = -pred_dist["criterion"](
-                pred_dist["logits"], test_joint[:, target_idx]
-            )
+            dim_log_prob = -pred_dist["criterion"](pred_dist["logits"], test_joint[:, target_idx])
 
             # Handle -inf values
             dim_log_prob = torch.where(
@@ -389,12 +375,8 @@ class NPE_PFN_Core:
             num_posterior_samples,
             boundary_padding,
         ):
-            posterior_samples = self.sample(
-                sample_shape=torch.Size([num_posterior_samples]), x=x
-            )
-            self._model_classifier.fit(
-                x, posterior_samples, boundary_padding, x_context, theta_context
-            )
+            posterior_samples = self.sample(sample_shape=torch.Size([num_posterior_samples]), x=x)
+            self._model_classifier.fit(x, posterior_samples, boundary_padding, x_context, theta_context)
 
         log_probs = self._model_classifier.ratio_log_probs(theta, eps)
 
@@ -468,9 +450,7 @@ class DensityRatioWrapper:
         uniform_log_prob = -torch.log(padded_dim_length).sum()
 
         # Generate uniform samples matching the shape of training data
-        uniform_samples = (
-            torch.rand_like(posterior_samples) * padded_dim_length + padded_dim_min
-        )
+        uniform_samples = torch.rand_like(posterior_samples) * padded_dim_length + padded_dim_min
 
         # Prepare classifier training data
         num_posterior_samples = posterior_samples.shape[0]
@@ -513,15 +493,11 @@ class DensityRatioWrapper:
 
     def ratio_log_probs(self, theta: Tensor, eps=1e-15):
         """Predict probabilities for the given theta."""
-        mask = torch.all(
-            (theta >= self._padded_dim_min) & (theta <= self._padded_dim_max), dim=1
-        )
+        mask = torch.all((theta >= self._padded_dim_min) & (theta <= self._padded_dim_max), dim=1)
 
         log_probs = torch.full(
             (theta.shape[0],),
-            self._uniform_log_prob
-            + torch.log(torch.tensor(eps))
-            - torch.log(torch.tensor(1 + eps)),
+            self._uniform_log_prob + torch.log(torch.tensor(eps)) - torch.log(torch.tensor(1 + eps)),
         )
 
         if mask.any():
@@ -569,9 +545,7 @@ class TabPFN_Based_NPE_PFN(NPE_PFN_Core):
 
     def get_context(self, x: Tensor):
         x = self._validate_x(x)
-        theta_context, x_context = self.filter(
-            x, self._theta_train, self._x_train, self.filter_context_size
-        )
+        theta_context, x_context = self.filter(x, self._theta_train, self._x_train, self.filter_context_size)
         return theta_context, x_context
 
 
@@ -638,9 +612,7 @@ class TabPFN_Based_Uncond_Estimator(NPE_PFN_Core):
         with_log_prob=False,
         eps=1e-15,
     ):
-        sampled_counts = np.random.multinomial(
-            sample_shape[0], self.counts / self.counts.sum()
-        )
+        sampled_counts = np.random.multinomial(sample_shape[0], self.counts / self.counts.sum())
 
         all_samples = []
         all_log_probs = []
@@ -701,30 +673,24 @@ class TabPFN_Based_Uncond_Estimator(NPE_PFN_Core):
             for i in range(0, cluster_theta.shape[0], max_sampling_batch_size):
                 batch_cluster_theta = cluster_theta[i : i + max_sampling_batch_size]
                 if mode == "autoregressive":
-                    cluster_log_probs[i : i + max_sampling_batch_size] = (
-                        self._autoregressive_log_prob(
-                            batch_cluster_theta,
-                            torch.randn(batch_cluster_theta.shape[0], 1),
-                            repeat_x=False,
-                            eps=eps,
-                        )
+                    cluster_log_probs[i : i + max_sampling_batch_size] = self._autoregressive_log_prob(
+                        batch_cluster_theta,
+                        torch.randn(batch_cluster_theta.shape[0], 1),
+                        repeat_x=False,
+                        eps=eps,
                     )
                 elif mode == "ratio_based":
                     # uses unconditional sample internally
-                    cluster_log_probs[i : i + max_sampling_batch_size] = (
-                        self._ratio_based_log_prob(
-                            batch_cluster_theta,
-                            torch.zeros(1, 1),
-                            eps=eps,
-                            **ratio_kwargs,
-                        )
+                    cluster_log_probs[i : i + max_sampling_batch_size] = self._ratio_based_log_prob(
+                        batch_cluster_theta,
+                        torch.zeros(1, 1),
+                        eps=eps,
+                        **ratio_kwargs,
                     )
                 else:
                     raise ValueError(f"Invalid mode: {mode}")
 
-            log_probs[cluster_mask] = (
-                cluster_log_probs + multinomial_log_probs[cluster_idx]
-            )
+            log_probs[cluster_mask] = cluster_log_probs + multinomial_log_probs[cluster_idx]
 
         self.set_cluster_state()  # reset cluster state for sanity
 

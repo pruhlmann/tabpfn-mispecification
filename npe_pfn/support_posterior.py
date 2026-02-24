@@ -24,7 +24,6 @@ class PosteriorSupport:
         oversample_sir: int = 100,
         log_prob_kwargs: Mapping = {},  # optionally pass some stuff depending on the posterior object
     ) -> None:
-
         self._prior = prior
         self._posterior = posterior
         self._obs = obs
@@ -57,7 +56,6 @@ class PosteriorSupport:
         allowed_false_negatives: float = 0.0,
         batch_size: int = 10_000,
     ) -> None:
-
         log_probs = self._posterior.log_prob(
             samples,
             self._obs,
@@ -76,7 +74,6 @@ class PosteriorSupport:
         return_acceptance_rate: bool = False,  # TODO could be something like return diagnostic
         return_ess: bool = False,
     ) -> Tensor:
-
         if self.sampling_method == "rejection":
             return self.sample_rejection(
                 sample_shape=sample_shape,
@@ -136,17 +133,11 @@ class PosteriorSupport:
 
             if lower is None or upper is None:
                 candidates = self._prior.sample((sampling_batch_size,))
-                log_probs = self._posterior.log_prob(
-                    candidates, self._obs, **self._log_prob_kwargs
-                )
+                log_probs = self._posterior.log_prob(candidates, self._obs, **self._log_prob_kwargs)
                 lower, upper = self._posterior._get_classifier_bounds()
             else:
-                candidates, pre_acceptance_rate = prereject_with_bounds(
-                    self._prior, lower, upper, sampling_batch_size
-                )
-                log_probs = self._posterior.log_prob(
-                    candidates, self._obs, **self._log_prob_kwargs
-                )
+                candidates, pre_acceptance_rate = prereject_with_bounds(self._prior, lower, upper, sampling_batch_size)
+                log_probs = self._posterior.log_prob(candidates, self._obs, **self._log_prob_kwargs)
                 sanity_lower, sanity_upper = self._posterior._get_classifier_bounds()
                 assert torch.allclose(lower, sanity_lower)
                 assert torch.allclose(upper, sanity_upper)
@@ -205,7 +196,6 @@ class PosteriorSupport:
         all_samples = []
         all_ess = []
         while num_remaining > 0:
-
             # use "free" log probs
             posterior_samples, posterior_log_probs = self._posterior.sample(
                 (sampling_batch_size,),
@@ -221,24 +211,16 @@ class PosteriorSupport:
 
             log_ratios = truncated_prior_log_probs - posterior_log_probs
             log_ratios = torch.nan_to_num(log_ratios, -float("inf"))
-            reshaped_ratio = torch.reshape(
-                log_ratios, (sir_batch_size, oversampling_factor)
-            )
+            reshaped_ratio = torch.reshape(log_ratios, (sir_batch_size, oversampling_factor))
             # Save guard
-            probs = torch.exp(
-                reshaped_ratio - torch.logsumexp(reshaped_ratio, dim=1, keepdim=True)
-            )
+            probs = torch.exp(reshaped_ratio - torch.logsumexp(reshaped_ratio, dim=1, keepdim=True))
 
             all_ess.append(1.0 / torch.sum(probs**2, dim=1))
 
             cat_dist = torch.distributions.Categorical(logits=reshaped_ratio)
             categorical_samples = cat_dist.sample((1,))[0, :]
-            reshaped_posterior_samples = torch.reshape(
-                posterior_samples, (sir_batch_size, self.oversample_sir, -1)
-            )
-            selected_posterior_samples = reshaped_posterior_samples[
-                torch.arange(sir_batch_size), categorical_samples
-            ]
+            reshaped_posterior_samples = torch.reshape(posterior_samples, (sir_batch_size, self.oversample_sir, -1))
+            selected_posterior_samples = reshaped_posterior_samples[torch.arange(sir_batch_size), categorical_samples]
 
             all_samples.append(selected_posterior_samples)
             num_remaining -= sir_batch_size
@@ -283,9 +265,7 @@ def prereject_with_bounds(
     pre_samples = []
     while num_pre_accepted < sampling_batch_size:
         samples = proposal.sample((pre_sampling_batch_size,))
-        within_bounds = torch.all(
-            (samples >= lower_bound) & (samples <= upper_bound), dim=1
-        )
+        within_bounds = torch.all((samples >= lower_bound) & (samples <= upper_bound), dim=1)
         samples = samples[within_bounds.bool()]
         pre_samples.append(samples)
 
@@ -354,9 +334,7 @@ def random_filtering(obs: Tensor, theta: Tensor, x: Tensor, context_size: int):
     return theta[perm[:context_size]], x[perm[:context_size]]
 
 
-def standardized_euclidean_filtering(
-    obs: Tensor, theta: Tensor, x: Tensor, context_size: int
-):
+def standardized_euclidean_filtering(obs: Tensor, theta: Tensor, x: Tensor, context_size: int):
     x_mean = x.mean(dim=0)
     x_std = x.std(dim=0)
     x_s = (x - x_mean) / x_std

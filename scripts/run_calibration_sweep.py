@@ -27,7 +27,12 @@ def main(_):
         all_results[n_calib] = []
         for seed in seeds:
             print(f"\n--- num_calibration = {n_calib}, seed = {seed} ---")
-            artifacts_path = out_dir / f"{cfg.task}_{cfg.misspec_type}" / "artifacts" / f"ncalib{n_calib}_seed{seed}"
+            artifacts_path = (
+                out_dir
+                / f"{cfg.task}_{cfg.misspec_type}"
+                / "artifacts"
+                / f"ncalib{n_calib}_seed{seed}"
+            )
             results = evaluate_calibrated_misspecification(
                 task_name=cfg.task,
                 misspec_type=cfg.misspec_type,

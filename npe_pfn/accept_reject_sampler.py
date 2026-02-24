@@ -48,9 +48,7 @@ def accept_reject_sample(
     while num_remaining > 0:
         i += 1
         # Sample and reject
-        candidates, log_probs = proposal(
-            sampling_batch_size, **proposal_sampling_kwargs
-        )
+        candidates, log_probs = proposal(sampling_batch_size, **proposal_sampling_kwargs)
         are_accepted = accept_reject_fn(candidates)
 
         # Store accepted samples

@@ -4240,7 +4240,7 @@ packages:
 - pypi: ./
   name: tabpfn-misspec
   version: 0.1.0
-  sha256: ef869f782b89a6cc0ad3d7574cab5896d36446d5ed464825b95cf79f00c9a605
+  sha256: 187c974c548e33ea22eebf818551f88626a1461841029de58996457399d6d2bd
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/02/be/5d2d47b1fb58943194fb59dcf222f7c4e35122ec0ffe8c36e18b5d728f0b/tblib-3.2.2-py3-none-any.whl
   name: tblib

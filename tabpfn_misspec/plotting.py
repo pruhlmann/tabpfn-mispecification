@@ -12,11 +12,11 @@ from scipy.stats import gaussian_kde, pearsonr
 # -- Method display names and visual style (Tol colorblind-safe palette) ------
 
 METHOD_STYLE = {
-    "npepfn_mixed":   dict(label="NPE-PFN (mixed)",    color="#228833", marker="o", ls="-"),
-    "npepfn_calib":   dict(label="NPE-PFN (calib.)",   color="#EE6677", marker="^", ls="-"),
+    "npepfn_mixed": dict(label="NPE-PFN (mixed)", color="#228833", marker="o", ls="-"),
+    "npepfn_calib": dict(label="NPE-PFN (calib.)", color="#EE6677", marker="^", ls="-"),
     "npepfn_misspec": dict(label="NPE-PFN (misspec.)", color="#4477AA", marker="s", ls="--"),
-    "npe_sbi":        dict(label="NPE (sbi)",          color="#CCBB44", marker="D", ls="-"),
-    "npepfn_y_fmpe":  dict(label="NPE-PFN + FMPE",    color="#AA3377", marker="v", ls="-."),
+    "npe_sbi": dict(label="NPE (sbi)", color="#CCBB44", marker="D", ls="-"),
+    "npepfn_y_fmpe": dict(label="NPE-PFN + FMPE", color="#AA3377", marker="v", ls="-."),
 }
 
 # Plotting order: "ours" first, then baselines
@@ -40,27 +40,29 @@ def _style(method):
 
 def _apply_rc():
     """Set publication-quality rcParams (NeurIPS / ICML style)."""
-    mpl.rcParams.update({
-        "font.family": "serif",
-        "text.usetex": True,
-        "text.latex.preamble": r"\usepackage{amsmath}",
-        "font.size": 8,
-        "axes.labelsize": 9,
-        "legend.fontsize": 7,
-        "legend.handlelength": 1.8,
-        "legend.columnspacing": 1.0,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
-        "lines.linewidth": 1.5,
-        "lines.markersize": 4,
-        "axes.linewidth": 0.6,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "xtick.direction": "in",
-        "ytick.direction": "in",
-        "savefig.dpi": 300,
-        "savefig.pad_inches": 0.03,
-    })
+    mpl.rcParams.update(
+        {
+            "font.family": "serif",
+            "text.usetex": True,
+            "text.latex.preamble": r"\usepackage{amsmath}",
+            "font.size": 8,
+            "axes.labelsize": 9,
+            "legend.fontsize": 7,
+            "legend.handlelength": 1.8,
+            "legend.columnspacing": 1.0,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "lines.linewidth": 1.5,
+            "lines.markersize": 4,
+            "axes.linewidth": 0.6,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "xtick.direction": "in",
+            "ytick.direction": "in",
+            "savefig.dpi": 300,
+            "savefig.pad_inches": 0.03,
+        }
+    )
 
 
 def _build_lookup(results_by_n_calib):
@@ -109,15 +111,11 @@ def _plot_metric(ax, lookup, sorted_n, observations, methods, metric, obs_filter
         means, stds = np.array(means), np.array(stds)
 
         if method == "npepfn_misspec":
-            ax.axhline(means[0], color=s["color"], ls="--", lw=1.0, alpha=0.8,
-                        label=s["label"])
-            ax.axhspan(means[0] - stds[0], means[0] + stds[0],
-                        color=s["color"], alpha=0.05)
+            ax.axhline(means[0], color=s["color"], ls="--", lw=1.0, alpha=0.8, label=s["label"])
+            ax.axhspan(means[0] - stds[0], means[0] + stds[0], color=s["color"], alpha=0.05)
         else:
-            ax.plot(xs, means, color=s["color"], marker=s["marker"],
-                    ls=s["ls"], label=s["label"])
-            ax.fill_between(xs, means - stds, means + stds,
-                            color=s["color"], alpha=0.12)
+            ax.plot(xs, means, color=s["color"], marker=s["marker"], ls=s["ls"], label=s["label"])
+            ax.fill_between(xs, means - stds, means + stds, color=s["color"], alpha=0.12)
 
     ax.set_xscale("log")
     ax.set_ylabel(METRIC_LABEL.get(metric, metric.upper()))
@@ -136,9 +134,7 @@ def _make_two_panel(lookup, sorted_n, observations, methods, obs_filter=None):
     # Single shared legend below
     handles, labels = ax_c2st.get_legend_handles_labels()
     ncol = min(3, len(methods))
-    fig.legend(handles, labels, loc="lower center",
-               ncol=ncol, frameon=False,
-               bbox_to_anchor=(0.5, -0.14))
+    fig.legend(handles, labels, loc="lower center", ncol=ncol, frameon=False, bbox_to_anchor=(0.5, -0.14))
 
     fig.subplots_adjust(wspace=0.35)
     return fig
@@ -146,9 +142,8 @@ def _make_two_panel(lookup, sorted_n, observations, methods, obs_filter=None):
 
 # -- Public API ---------------------------------------------------------------
 
-def plot_calibration_comparison(
-    results_by_n_calib, metric="c2st", output_dir="results", task_name=None
-):
+
+def plot_calibration_comparison(results_by_n_calib, metric="c2st", output_dir="results", task_name=None):
     """Simple single-panel plot (no seed information)."""
     _apply_rc()
     lookup, sorted_n, observations, methods = _build_lookup(results_by_n_calib)
@@ -166,9 +161,7 @@ def plot_calibration_comparison(
     print(f"Saved {out_path}")
 
 
-def plot_calibration_comparison_seeds(
-    results_by_n_calib, metric="c2st", output_dir="results", task_name=None
-):
+def plot_calibration_comparison_seeds(results_by_n_calib, metric="c2st", output_dir="results", task_name=None):
     """Single-panel plot with mean +/- std across seeds (averaged over obs)."""
     _apply_rc()
     lookup, sorted_n, observations, methods = _build_lookup(results_by_n_calib)
@@ -227,7 +220,7 @@ def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, ou
     _apply_rc()
     D = ref_samples.shape[1]
     if param_names is None:
-        param_names = [rf"$\theta_{{{i+1}}}$" for i in range(D)]
+        param_names = [rf"$\theta_{{{i + 1}}}$" for i in range(D)]
 
     fig, axes = plt.subplots(D, D, figsize=(1.5 * D, 1.5 * D))
     if D == 1:
@@ -270,14 +263,22 @@ def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, ou
             else:
                 # Lower triangle: scatter
                 idx = np.random.choice(len(ref_samples), size=min(max_scatter, len(ref_samples)), replace=False)
-                ax.scatter(ref_samples[idx, j], ref_samples[idx, i],
-                           c=ref_color, s=3, alpha=0.15, rasterized=True, label="Reference")
+                ax.scatter(
+                    ref_samples[idx, j],
+                    ref_samples[idx, i],
+                    c=ref_color,
+                    s=3,
+                    alpha=0.15,
+                    rasterized=True,
+                    label="Reference",
+                )
                 for method in methods:
                     s = _style(method)
                     samp = samples_by_method[method]
                     idx_m = np.random.choice(len(samp), size=min(max_scatter, len(samp)), replace=False)
-                    ax.scatter(samp[idx_m, j], samp[idx_m, i],
-                               c=s["color"], s=3, alpha=0.15, rasterized=True, label=s["label"])
+                    ax.scatter(
+                        samp[idx_m, j], samp[idx_m, i], c=s["color"], s=3, alpha=0.15, rasterized=True, label=s["label"]
+                    )
 
             if i == D - 1:
                 ax.set_xlabel(param_names[j])
@@ -319,10 +320,8 @@ def plot_synthetic_y_scatter(y_pred, y_true, output_path=None):
         fig, ax = plt.subplots(figsize=(3.0, 3.0))
         idx_t = np.random.choice(len(y_true), size=min(max_pts, len(y_true)), replace=False)
         idx_p = np.random.choice(len(y_pred), size=min(max_pts, len(y_pred)), replace=False)
-        ax.scatter(y_true[idx_t, 0], y_true[idx_t, 1],
-                   c=true_color, s=4, alpha=0.3, rasterized=True, label="True")
-        ax.scatter(y_pred[idx_p, 0], y_pred[idx_p, 1],
-                   c=pred_color, s=4, alpha=0.3, rasterized=True, label="Predicted")
+        ax.scatter(y_true[idx_t, 0], y_true[idx_t, 1], c=true_color, s=4, alpha=0.3, rasterized=True, label="True")
+        ax.scatter(y_pred[idx_p, 0], y_pred[idx_p, 1], c=pred_color, s=4, alpha=0.3, rasterized=True, label="Predicted")
         ax.set_xlabel(r"$y_1$")
         ax.set_ylabel(r"$y_2$")
         ax.legend(frameon=False, fontsize=6, markerscale=2)
@@ -352,17 +351,25 @@ def plot_synthetic_y_scatter(y_pred, y_true, output_path=None):
                     ax.plot(grid, kde_p(grid), color=pred_color, lw=1.0, label="Predicted")
                     ax.set_yticks([])
                 else:
-                    ax.scatter(y_true[idx_t, j], y_true[idx_t, i],
-                               c=true_color, s=3, alpha=0.15, rasterized=True, label="True")
-                    ax.scatter(y_pred[idx_p, j], y_pred[idx_p, i],
-                               c=pred_color, s=3, alpha=0.15, rasterized=True, label="Predicted")
+                    ax.scatter(
+                        y_true[idx_t, j], y_true[idx_t, i], c=true_color, s=3, alpha=0.15, rasterized=True, label="True"
+                    )
+                    ax.scatter(
+                        y_pred[idx_p, j],
+                        y_pred[idx_p, i],
+                        c=pred_color,
+                        s=3,
+                        alpha=0.15,
+                        rasterized=True,
+                        label="Predicted",
+                    )
 
                 if i == D - 1:
-                    ax.set_xlabel(rf"$y_{{{j+1}}}$")
+                    ax.set_xlabel(rf"$y_{{{j + 1}}}$")
                 else:
                     ax.set_xticklabels([])
                 if j == 0 and i != 0:
-                    ax.set_ylabel(rf"$y_{{{i+1}}}$")
+                    ax.set_ylabel(rf"$y_{{{i + 1}}}$")
                 elif j != 0:
                     ax.set_yticklabels([])
 
@@ -399,8 +406,8 @@ def plot_y_diagnostics(y_pred, y_true, output_path=None):
         ax.plot([lo, hi], [lo, hi], "k--", lw=0.8, alpha=0.5)
         r, _ = pearsonr(y_true[:, d], y_pred[:, d])
         ax.annotate(f"$r = {r:.3f}$", xy=(0.05, 0.92), xycoords="axes fraction", fontsize=7)
-        ax.set_xlabel(rf"$y_{{{d+1}}}$ (true)")
-        ax.set_ylabel(rf"$y_{{{d+1}}}$ (predicted)")
+        ax.set_xlabel(rf"$y_{{{d + 1}}}$ (true)")
+        ax.set_ylabel(rf"$y_{{{d + 1}}}$ (predicted)")
 
     fig.tight_layout()
     if output_path is not None:

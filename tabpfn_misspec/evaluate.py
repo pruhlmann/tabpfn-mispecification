@@ -68,82 +68,16 @@ class EvalResult:
         return asdict(self)
 
 
-def evaluate_misspecification(
+def _load_cached_results(
+    artifacts_dir,
+    method,
+    seed,
+    task,
+    num_observations,
     task_name,
     misspec_type,
-    misspec_kwargs=None,
-    num_simulations=1000,
-    num_posterior_samples=1000,
-    num_observations=1,
-    seed=42,
-    use_prior_transform=True,
-):
-    """Run misspecification evaluation on an sbibm task.
-
-    Args:
-        task_name: sbibm task name (e.g. "two_moons").
-        misspec_type: Misspecification type (e.g. "additive_noise").
-        misspec_kwargs: Kwargs for the misspecified simulator.
-        num_simulations: Number of (theta, x) training pairs.
-        num_posterior_samples: Samples to draw from the approximate posterior.
-        num_observations: Number of sbibm observations to evaluate.
-        seed: Random seed.
-
-    Returns:
-        List of EvalResult, one per observation.
-    """
-    if misspec_kwargs is None:
-        misspec_kwargs = {}
-
-    torch.manual_seed(seed)
-
-    task = sbibm.get_task(task_name)
-    prior = task.get_prior_dist()
-    simulator = get_misspecified_simulator(task_name, misspec_type, **misspec_kwargs)
-
-    if use_prior_transform:
-        forward, inverse, est_prior = get_parameter_transform(prior)
-    else:
-        forward, inverse, est_prior = lambda t: t, lambda z: z, prior
-
-    # Generate training data from misspecified simulator
-    theta = prior.sample((num_simulations,))
-    x = simulator(theta)
-
-    estimator = TabPFN_Based_NPE_PFN(prior=est_prior)
-    estimator.append_simulations(forward(theta), x)
-
-    # Evaluate on each observation
-    results = []
-    for obs_idx in range(1, num_observations + 1):
-        y_obs = task.get_observation(obs_idx)
-        ref_samples = task.get_reference_posterior_samples(obs_idx)
-
-        posterior_samples = inverse(
-            estimator.sample(
-                sample_shape=torch.Size([num_posterior_samples]),
-                x=y_obs,
-            )
-        )
-
-        result = EvalResult(
-            task_name=task_name,
-            misspec_type=misspec_type,
-            misspec_kwargs=misspec_kwargs,
-            num_observation=obs_idx,
-            num_simulations=num_simulations,
-            c2st=float(c2st(posterior_samples, ref_samples)),
-            mmd=float(mmd(posterior_samples, ref_samples)),
-        )
-        results.append(result)
-        print(f"  obs {obs_idx}: C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}")
-
-    return results
-
-
-def _load_cached_results(
-    artifacts_dir, method, seed, task, num_observations,
-    task_name, misspec_type, misspec_kwargs, num_simulations,
+    misspec_kwargs,
+    num_simulations,
 ):
     """Load cached posterior samples and compute metrics against reference."""
     results = []
@@ -164,7 +98,9 @@ def _load_cached_results(
             method=method,
         )
         results.append(result)
-        print(f"  [{method}] obs {obs_idx} (cached): C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}")
+        print(
+            f"  [{method}] obs {obs_idx} (cached): C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}"
+        )
     return results
 
 
@@ -213,7 +149,10 @@ def evaluate_calibrated_misspecification(
         evaluate_npepfn_calib_only,
         evaluate_npepfn_y_fmpe,
     )
-    from tabpfn_misspec.calibrated import build_calibrated_estimator, sample_calibrated
+    from tabpfn_misspec.calibrated import (
+        build_calibrated_estimator,
+        sample_calibrated,
+    )
 
     if misspec_kwargs is None:
         misspec_kwargs = {}
@@ -256,8 +195,15 @@ def evaluate_calibrated_misspecification(
             return None  # not skipped, run normally
         if artifacts_dir is not None:
             cached = _load_cached_results(
-                artifacts_dir, method, seed, task, num_observations,
-                task_name, misspec_type, misspec_kwargs, num_simulations,
+                artifacts_dir,
+                method,
+                seed,
+                task,
+                num_observations,
+                task_name,
+                misspec_type,
+                misspec_kwargs,
+                num_simulations,
             )
             if cached is not None:
                 return cached
@@ -302,9 +248,15 @@ def evaluate_calibrated_misspecification(
             t_inference = time.perf_counter() - t0
             if artifacts_dir is not None:
                 _save_posterior(
-                    artifacts_dir, "npepfn_misspec", obs_idx, seed, posterior_samples
+                    artifacts_dir,
+                    "npepfn_misspec",
+                    obs_idx,
+                    seed,
+                    posterior_samples,
                 )
-                _save_posterior(artifacts_dir, "reference", obs_idx, seed, ref_samples)
+                _save_posterior(
+                    artifacts_dir, "reference", obs_idx, seed, ref_samples
+                )
             result = EvalResult(
                 task_name=task_name,
                 misspec_type=misspec_type,
@@ -376,7 +328,11 @@ def evaluate_calibrated_misspecification(
                 t_inference = time.perf_counter() - t0
                 if artifacts_dir is not None:
                     _save_posterior(
-                        artifacts_dir, "npepfn_mixed", obs_idx, seed, posterior_samples
+                        artifacts_dir,
+                        "npepfn_mixed",
+                        obs_idx,
+                        seed,
+                        posterior_samples,
                     )
                 result = EvalResult(
                     task_name=task_name,

@@ -36,9 +36,7 @@ def _scale_shift(task_name, scale=2.0, shift=1.0):
 def _one_gaussian(task_name, mean=0.0, std=1.0):
     """Replace the true simulator with a single Gaussian, ignoring theta."""
     if task_name != "gaussian_mixture":
-        raise ValueError(
-            f"_one_gaussian misspecification is only defined for 'gaussian_mixture', got '{task_name}'"
-        )
+        raise ValueError(f"_one_gaussian misspecification is only defined for 'gaussian_mixture', got '{task_name}'")
     task: GaussianMixture = sbibm.get_task("gaussian_mixture")
     dim_data = task.dim_data
 
@@ -63,9 +61,7 @@ def _weekend_delay(task_name, delay_fraction=0.05):
         delay_fraction: Fraction of weekend counts deferred to Monday.
     """
     if task_name != "sir":
-        raise ValueError(
-            f"_weekend_delay is only defined for 'sir', got '{task_name}'"
-        )
+        raise ValueError(f"_weekend_delay is only defined for 'sir', got '{task_name}'")
     task = sbibm.get_task("sir")
     N = task.N
     total_count = task.total_count
@@ -126,9 +122,7 @@ def _heavy_tail_radius(task_name, df=2):
     replaces r ~ Normal(0.1, 0.01) with r ~ StudentT(df, 0.1, 0.01).
     """
     if task_name != "two_moons":
-        raise ValueError(
-            f"_heavy_tail_radius is only defined for 'two_moons', got '{task_name}'"
-        )
+        raise ValueError(f"_heavy_tail_radius is only defined for 'two_moons', got '{task_name}'")
 
     ang = torch.tensor([-math.pi / 4.0])
     c = torch.cos(ang)

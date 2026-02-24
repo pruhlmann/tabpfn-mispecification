@@ -7,9 +7,7 @@ from tabpfn import TabPFNClassifier
 
 class NPE_PFN_RestrictedPrior(RestrictedPrior):
     def __init__(self, prior, acceptance_threshold=0.3, tabpfn_classifier_kwargs=None):
-        self.classifier = TabPFNClassifier(
-            **tabpfn_classifier_kwargs if tabpfn_classifier_kwargs else {}
-        )
+        self.classifier = TabPFNClassifier(**tabpfn_classifier_kwargs if tabpfn_classifier_kwargs else {})
         self.thetas = torch.tensor([])
         self.y_labels = torch.tensor([])
         # Pickable
@@ -23,9 +21,7 @@ class NPE_PFN_RestrictedPrior(RestrictedPrior):
 
     @staticmethod
     def accept_reject_fn(theta, classifier, acceptance_threshold=0.3):
-        return torch.tensor(
-            classifier.predict_proba(theta)[:, -1] > acceptance_threshold
-        )
+        return torch.tensor(classifier.predict_proba(theta)[:, -1] > acceptance_threshold)
 
     def log_prob(
         self,
@@ -34,9 +30,7 @@ class NPE_PFN_RestrictedPrior(RestrictedPrior):
         track_gradients=False,
         prior_acceptance_params=None,
     ):
-        return super().log_prob(
-            theta, norm_restricted_prior, track_gradients, prior_acceptance_params
-        )
+        return super().log_prob(theta, norm_restricted_prior, track_gradients, prior_acceptance_params)
 
     def append_simulations(self, theta, y_label):
         theta = torch.tensor(theta).detach().cpu()
@@ -72,17 +66,13 @@ class NPE_PFN_RestrictedPrior(RestrictedPrior):
             additional_class0_samples = N_half - N_class1
             if N_class0 > additional_class0_samples:
                 idx_class0 = torch.randperm(N_class0)[:additional_class0_samples]
-                _thetas_class0 = torch.cat(
-                    [_thetas_class0, thetas_class0[idx_class0]], dim=0
-                )
+                _thetas_class0 = torch.cat([_thetas_class0, thetas_class0[idx_class0]], dim=0)
 
         if N_class0 < N_half and N_class1 > N_half:
             additional_class1_samples = N_half - N_class0
             if N_class1 > additional_class1_samples:
                 idx_class1 = torch.randperm(N_class1)[:additional_class1_samples]
-                _thetas_class1 = torch.cat(
-                    [_thetas_class1, thetas_class1[idx_class1]], dim=0
-                )
+                _thetas_class1 = torch.cat([_thetas_class1, thetas_class1[idx_class1]], dim=0)
 
         # Fit the classifier with the sampled data
         self.classifier.fit(
