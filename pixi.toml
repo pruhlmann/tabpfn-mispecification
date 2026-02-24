@@ -16,12 +16,12 @@ scipy = "<1.13"
 [pypi-dependencies]
 torch = {version = "~=2.6.0", index = "https://download.pytorch.org/whl/cu124"}
 tabpfn-misspec = { path = ".", editable = true }
-npe-pfn = { path = "../npe-pfn", editable = true }
 sbibm = "*"
 sbi = "*"
 pot = "*"
 ml-collections = "*"
 absl-py = "*"
+tabpfn = ">=2.0.0,<3.0.0"
 
 [tasks]
 experiment = "python scripts/run_experiment.py"
