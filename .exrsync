@@ -5,3 +5,8 @@ __pycache__/
 *.egg-info/
 outputs/
 sbi-logs/
+results_old/
+report/
+*.tar
+*.ipynb
+.ipynb_checkpoints/

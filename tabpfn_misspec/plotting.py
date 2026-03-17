@@ -6,21 +6,46 @@ from pathlib import Path
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import gaussian_kde, pearsonr
+from scipy.stats import gaussian_kde
 
 
-# -- Method display names and visual style (Tol colorblind-safe palette) ------
+# -- Method display names and visual style ------------------------------------
+# Three color groups:
+#   syn + cal: purple/magenta gradient, different linestyles
+#   syn only:  blue/teal gradient, different linestyles
+#   other:     distinct individual colors
 
 METHOD_STYLE = {
+    # --- syn + cal (purple gradient) ---
+    "npepfn_y_fmpe_concat": dict(label="FMPE (syn. y + cal.)", color="#7B2D8E", marker="v", ls="-"),
+    "npepfn_y_npepfn_concat": dict(
+        label="NPE-PFN (syn. y + cal.)", color="#C77CFF", marker="h", ls="--"
+    ),
+    # --- syn only (blue/teal gradient) ---
+    "npepfn_y_fmpe": dict(label="FMPE (syn. y)", color="#0B3D91", marker="v", ls="-"),
+    "npepfn_y_npepfn": dict(label="NPE-PFN (syn. y)", color="#4DA6FF", marker="h", ls="--"),
+    "npepfn_ythetaonly_npepfn": dict(
+        label=r"NPE-PFN (syn. y, $\theta$ only)", color="#99D6FF", marker="d", ls="-."
+    ),
+    # --- other (distinct colors) ---
     "npepfn_mixed": dict(label="NPE-PFN (mixed)", color="#228833", marker="o", ls="-"),
     "npepfn_calib": dict(label="NPE-PFN (calib.)", color="#EE6677", marker="^", ls="-"),
-    "npepfn_misspec": dict(label="NPE-PFN (misspec.)", color="#4477AA", marker="s", ls="--"),
-    "npe_sbi": dict(label="NPE (sbi)", color="#CCBB44", marker="D", ls="-"),
-    "npepfn_y_fmpe": dict(label="NPE-PFN + FMPE", color="#AA3377", marker="v", ls="-."),
+    "npepfn_misspec": dict(label="NPE-PFN (misspec.)", color="#CCBB44", marker="s", ls="--"),
+    "npe_sbi": dict(label="NPE (sbi)", color="#FF8C00", marker="D", ls="-"),
 }
 
 # Plotting order: "ours" first, then baselines
-METHOD_ORDER = ["npepfn_mixed", "npepfn_calib", "npe_sbi", "npepfn_y_fmpe", "npepfn_misspec"]
+METHOD_ORDER = [
+    "npepfn_y_fmpe_concat",
+    "npepfn_y_npepfn_concat",
+    "npepfn_y_fmpe",
+    "npepfn_y_npepfn",
+    "npepfn_ythetaonly_npepfn",
+    "npepfn_mixed",
+    "npepfn_calib",
+    "npe_sbi",
+    "npepfn_misspec",
+]
 
 _FALLBACK_COLORS = ["#66CCEE", "#CC6677", "#882255", "#117733", "#332288"]
 _FALLBACK_MARKERS = ["P", "X", "h", "*", "p"]
@@ -28,6 +53,7 @@ _FALLBACK_MARKERS = ["P", "X", "h", "*", "p"]
 METRIC_LABEL = {
     "c2st": r"C2ST $\downarrow$",
     "mmd": r"MMD $\downarrow$",
+    "log_prob": r"Log Prob $\uparrow$",
 }
 
 
@@ -76,8 +102,8 @@ def _build_lookup(results_by_n_calib):
             method = r["method"] if isinstance(r, dict) else r.method
             observations.add(obs)
             methods.add(method)
-            for m in ("c2st", "mmd"):
-                val = r[m] if isinstance(r, dict) else getattr(r, m)
+            for m in ("c2st", "mmd", "log_prob"):
+                val = r.get(m, float("nan")) if isinstance(r, dict) else getattr(r, m, float("nan"))
                 lookup[(n_calib, method, obs, m)].append(val)
     sorted_n = sorted(results_by_n_calib.keys())
     observations = sorted(observations)
@@ -129,12 +155,14 @@ def _make_two_panel(lookup, sorted_n, observations, methods, obs_filter=None):
     _plot_metric(ax_mmd, lookup, sorted_n, observations, methods, "mmd", obs_filter=obs_filter)
 
     # Shared x-label
-    fig.text(0.5, 0.01, r"$n_{\mathrm{calib}}$", ha="center", fontsize=9)
+    fig.text(0.5, -0.02, r"$n_{\mathrm{calib}}$", ha="center", fontsize=9)
 
     # Single shared legend below
     handles, labels = ax_c2st.get_legend_handles_labels()
     ncol = min(3, len(methods))
-    fig.legend(handles, labels, loc="lower center", ncol=ncol, frameon=False, bbox_to_anchor=(0.5, -0.14))
+    fig.legend(
+        handles, labels, loc="lower center", ncol=ncol, frameon=False, bbox_to_anchor=(0.5, -0.22)
+    )
 
     fig.subplots_adjust(wspace=0.35)
     return fig
@@ -143,7 +171,9 @@ def _make_two_panel(lookup, sorted_n, observations, methods, obs_filter=None):
 # -- Public API ---------------------------------------------------------------
 
 
-def plot_calibration_comparison(results_by_n_calib, metric="c2st", output_dir="results", task_name=None):
+def plot_calibration_comparison(
+    results_by_n_calib, metric="c2st", output_dir="results", task_name=None
+):
     """Simple single-panel plot (no seed information)."""
     _apply_rc()
     lookup, sorted_n, observations, methods = _build_lookup(results_by_n_calib)
@@ -161,7 +191,9 @@ def plot_calibration_comparison(results_by_n_calib, metric="c2st", output_dir="r
     print(f"Saved {out_path}")
 
 
-def plot_calibration_comparison_seeds(results_by_n_calib, metric="c2st", output_dir="results", task_name=None):
+def plot_calibration_comparison_seeds(
+    results_by_n_calib, metric="c2st", output_dir="results", task_name=None
+):
     """Single-panel plot with mean +/- std across seeds (averaged over obs)."""
     _apply_rc()
     lookup, sorted_n, observations, methods = _build_lookup(results_by_n_calib)
@@ -262,7 +294,9 @@ def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, ou
                 ax.set_yticks([])
             else:
                 # Lower triangle: scatter
-                idx = np.random.choice(len(ref_samples), size=min(max_scatter, len(ref_samples)), replace=False)
+                idx = np.random.choice(
+                    len(ref_samples), size=min(max_scatter, len(ref_samples)), replace=False
+                )
                 ax.scatter(
                     ref_samples[idx, j],
                     ref_samples[idx, i],
@@ -275,9 +309,17 @@ def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, ou
                 for method in methods:
                     s = _style(method)
                     samp = samples_by_method[method]
-                    idx_m = np.random.choice(len(samp), size=min(max_scatter, len(samp)), replace=False)
+                    idx_m = np.random.choice(
+                        len(samp), size=min(max_scatter, len(samp)), replace=False
+                    )
                     ax.scatter(
-                        samp[idx_m, j], samp[idx_m, i], c=s["color"], s=3, alpha=0.15, rasterized=True, label=s["label"]
+                        samp[idx_m, j],
+                        samp[idx_m, i],
+                        c=s["color"],
+                        s=3,
+                        alpha=0.15,
+                        rasterized=True,
+                        label=s["label"],
                     )
 
             if i == D - 1:
@@ -302,114 +344,64 @@ def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, ou
     return fig
 
 
-def plot_synthetic_y_scatter(y_pred, y_true, output_path=None):
-    """Spatial scatter of predicted vs true y samples, overlaid.
+def plot_y_distributional(theta_diag, y_true, y_tilde, output_path=None):
+    """Distributional comparison of true vs predicted y for K fixed thetas.
 
     Args:
-        y_pred: (N, D) numpy array of predicted y values.
-        y_true: (N, D) numpy array of true y values.
+        theta_diag: (K, dim_theta) numpy array of diagnostic theta values.
+        y_true: (K, N_test, dim_y) numpy array of true y samples.
+        y_tilde: (K, N_test, dim_y) numpy array of predicted y samples.
         output_path: If set, save figure to this path.
     """
     _apply_rc()
-    D = y_true.shape[1]
-    max_pts = 500
+    K, N_test, dim_y = y_true.shape
     true_color = "#999999"
     pred_color = "#AA3377"
 
-    if D == 2:
-        fig, ax = plt.subplots(figsize=(3.0, 3.0))
-        idx_t = np.random.choice(len(y_true), size=min(max_pts, len(y_true)), replace=False)
-        idx_p = np.random.choice(len(y_pred), size=min(max_pts, len(y_pred)), replace=False)
-        ax.scatter(y_true[idx_t, 0], y_true[idx_t, 1], c=true_color, s=4, alpha=0.3, rasterized=True, label="True")
-        ax.scatter(y_pred[idx_p, 0], y_pred[idx_p, 1], c=pred_color, s=4, alpha=0.3, rasterized=True, label="Predicted")
-        ax.set_xlabel(r"$y_1$")
-        ax.set_ylabel(r"$y_2$")
-        ax.legend(frameon=False, fontsize=6, markerscale=2)
-        fig.tight_layout()
-    else:
-        # Lower-triangle pairwise grid
-        fig, axes = plt.subplots(D, D, figsize=(1.5 * D, 1.5 * D))
-        if D == 1:
-            axes = np.array([[axes]])
-        idx_t = np.random.choice(len(y_true), size=min(max_pts, len(y_true)), replace=False)
-        idx_p = np.random.choice(len(y_pred), size=min(max_pts, len(y_pred)), replace=False)
+    fig, axes = plt.subplots(K, dim_y, figsize=(2.5 * dim_y, 1.8 * K), squeeze=False)
+    for k in range(K):
+        for d in range(dim_y):
+            ax = axes[k, d]
+            col_true = y_true[k, :, d]
+            col_pred = y_tilde[k, :, d]
+            lo = min(float(col_true.min()), float(col_pred.min()))
+            hi = max(float(col_true.max()), float(col_pred.max()))
+            grid = np.linspace(lo, hi, 200)
+            try:
+                kde_t = gaussian_kde(col_true)
+                ax.plot(
+                    grid,
+                    kde_t(grid),
+                    color=true_color,
+                    lw=1.2,
+                    label="True" if k == 0 and d == 0 else None,
+                )
+            except np.linalg.LinAlgError:
+                pass
+            try:
+                kde_p = gaussian_kde(col_pred)
+                ax.plot(
+                    grid,
+                    kde_p(grid),
+                    color=pred_color,
+                    lw=1.0,
+                    label="Predicted" if k == 0 and d == 0 else None,
+                )
+            except np.linalg.LinAlgError:
+                pass
+            ax.set_yticks([])
+            if k == K - 1:
+                ax.set_xlabel(rf"$y_{{{d + 1}}}$")
+            else:
+                ax.set_xticklabels([])
+            if d == 0:
+                ax.set_ylabel(rf"$\theta_{{{k + 1}}}$")
 
-        for i in range(D):
-            for j in range(D):
-                ax = axes[i, j]
-                if j > i:
-                    ax.set_visible(False)
-                    continue
-                if i == j:
-                    # Diagonal: overlaid KDE
-                    lo = min(float(y_true[:, i].min()), float(y_pred[:, i].min()))
-                    hi = max(float(y_true[:, i].max()), float(y_pred[:, i].max()))
-                    grid = np.linspace(lo, hi, 200)
-                    kde_t = gaussian_kde(y_true[:, i])
-                    kde_p = gaussian_kde(y_pred[:, i])
-                    ax.plot(grid, kde_t(grid), color=true_color, lw=1.2, label="True")
-                    ax.plot(grid, kde_p(grid), color=pred_color, lw=1.0, label="Predicted")
-                    ax.set_yticks([])
-                else:
-                    ax.scatter(
-                        y_true[idx_t, j], y_true[idx_t, i], c=true_color, s=3, alpha=0.15, rasterized=True, label="True"
-                    )
-                    ax.scatter(
-                        y_pred[idx_p, j],
-                        y_pred[idx_p, i],
-                        c=pred_color,
-                        s=3,
-                        alpha=0.15,
-                        rasterized=True,
-                        label="Predicted",
-                    )
-
-                if i == D - 1:
-                    ax.set_xlabel(rf"$y_{{{j + 1}}}$")
-                else:
-                    ax.set_xticklabels([])
-                if j == 0 and i != 0:
-                    ax.set_ylabel(rf"$y_{{{i + 1}}}$")
-                elif j != 0:
-                    ax.set_yticklabels([])
-
-        handles, labels = axes[0, 0].get_legend_handles_labels()
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
         fig.legend(handles, labels, loc="upper right", frameon=False, fontsize=6)
-        fig.subplots_adjust(hspace=0.1, wspace=0.1)
+    fig.subplots_adjust(hspace=0.3, wspace=0.2)
 
-    if output_path is not None:
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, bbox_inches="tight")
-        print(f"Saved {output_path}")
-    plt.close(fig)
-    return fig
-
-
-def plot_y_diagnostics(y_pred, y_true, output_path=None):
-    """Scatter of predicted vs true y with y=x diagonal and Pearson r.
-
-    Args:
-        y_pred: (N, dim_y) numpy array of predicted y values.
-        y_true: (N, dim_y) numpy array of true y values.
-        output_path: If set, save figure to this path.
-    """
-    _apply_rc()
-    dim_y = y_true.shape[1]
-    color = METHOD_STYLE["npepfn_y_fmpe"]["color"]
-
-    fig, axes = plt.subplots(1, dim_y, figsize=(2.5 * dim_y, 2.5), squeeze=False)
-    for d in range(dim_y):
-        ax = axes[0, d]
-        ax.scatter(y_true[:, d], y_pred[:, d], c=color, s=4, alpha=0.3, rasterized=True)
-        lo = min(float(y_true[:, d].min()), float(y_pred[:, d].min()))
-        hi = max(float(y_true[:, d].max()), float(y_pred[:, d].max()))
-        ax.plot([lo, hi], [lo, hi], "k--", lw=0.8, alpha=0.5)
-        r, _ = pearsonr(y_true[:, d], y_pred[:, d])
-        ax.annotate(f"$r = {r:.3f}$", xy=(0.05, 0.92), xycoords="axes fraction", fontsize=7)
-        ax.set_xlabel(rf"$y_{{{d + 1}}}$ (true)")
-        ax.set_ylabel(rf"$y_{{{d + 1}}}$ (predicted)")
-
-    fig.tight_layout()
     if output_path is not None:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, bbox_inches="tight")

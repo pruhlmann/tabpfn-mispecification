@@ -14,7 +14,7 @@ from tabpfn_misspec.plotting import (
     plot_calibration_comparison_seeds,
     plot_posterior_pairplot,
     plot_sweep_figure,
-    plot_y_diagnostics,
+    plot_y_distributional,
 )
 from tabpfn_misspec.simulators import get_misspecified_simulator
 
@@ -31,6 +31,6 @@ __all__ = [
     "plot_calibration_comparison_seeds",
     "plot_posterior_pairplot",
     "plot_sweep_figure",
-    "plot_y_diagnostics",
+    "plot_y_distributional",
     "sample_calibrated",
 ]

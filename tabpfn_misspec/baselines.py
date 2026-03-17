@@ -3,14 +3,11 @@
 import time
 
 import torch
-import sbibm
 
 from npe_pfn import TabPFN_Based_NPE_PFN
 from sbi.inference import FMPE
 
-from tabpfn_misspec.calibrated import build_y_predictor, generate_synthetic_y
-from tabpfn_misspec.evaluate import EvalResult
-from tabpfn_misspec.metrics import c2st, mmd
+from tabpfn_misspec.evaluate import EvalResult, _compute_sample_metrics, _info, _obs_line, _save_metrics
 
 
 def _save_posterior(artifacts_dir, method, obs_idx, seed, samples):
@@ -32,6 +29,9 @@ def evaluate_npepfn_calib_only(
     misspec_kwargs,
     seed=42,
     artifacts_dir=None,
+    forward=None,
+    log_abs_det_jac=None,
+    metrics_to_compute=("c2st", "mmd", "log_prob"),
 ):
     """Baseline: NPE-PFN with only calibration (theta, y) as context.
 
@@ -46,6 +46,7 @@ def evaluate_npepfn_calib_only(
     Returns:
         List of EvalResult with method="npepfn_calib".
     """
+    compute_log_prob = "log_prob" in metrics_to_compute
     estimator = TabPFN_Based_NPE_PFN(prior=unbounded_prior)
     estimator.append_simulations(theta_calib_t, y_calib)
 
@@ -66,20 +67,33 @@ def evaluate_npepfn_calib_only(
         if artifacts_dir is not None:
             _save_posterior(artifacts_dir, "npepfn_calib", obs_idx, seed, posterior_samples)
 
+        sample_metrics = _compute_sample_metrics(
+            posterior_samples, ref_samples, metrics_to_compute
+        )
+        log_prob_val = float("nan")
+        if compute_log_prob and forward is not None and log_abs_det_jac is not None:
+            try:
+                ref_t = forward(ref_samples)
+                lp = estimator.log_prob(ref_t, x=y_obs) + log_abs_det_jac(ref_t)
+                log_prob_val = float(lp.mean())
+            except Exception:
+                pass
+        sample_metrics["log_prob"] = log_prob_val
+        if artifacts_dir is not None:
+            _save_metrics(artifacts_dir, "npepfn_calib", obs_idx, seed, sample_metrics)
         result = EvalResult(
             task_name=task_name,
             misspec_type=misspec_type,
             misspec_kwargs=misspec_kwargs,
             num_observation=obs_idx,
-            num_simulations=len(theta_calib_t),
-            c2st=float(c2st(posterior_samples, ref_samples)),
-            mmd=float(mmd(posterior_samples, ref_samples)),
+            num_context_size=len(theta_calib_t),
+            c2st=sample_metrics.get("c2st", float("nan")),
+            mmd=sample_metrics.get("mmd", float("nan")),
+            log_prob=log_prob_val,
             method="npepfn_calib",
         )
         results.append(result)
-        print(
-            f"  [npepfn_calib] obs {obs_idx}: C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}, inference={t_inference:.1f}s"
-        )
+        _obs_line("npepfn_calib", obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
 
     return results
 
@@ -96,6 +110,7 @@ def evaluate_npe_sbi(
     misspec_kwargs,
     seed=42,
     artifacts_dir=None,
+    metrics_to_compute=("c2st", "mmd", "log_prob"),
 ):
     """Baseline: standard NPE from sbi trained on calibration data.
 
@@ -104,13 +119,14 @@ def evaluate_npe_sbi(
     """
     from sbi.inference import NPE
 
+    compute_log_prob = "log_prob" in metrics_to_compute
     inference = NPE(prior=prior)
     inference.append_simulations(theta_calib, y_calib)
     t0 = time.perf_counter()
     density_estimator = inference.train()
     t_train = time.perf_counter() - t0
     posterior = inference.build_posterior(density_estimator)
-    print(f"  [npe_sbi] training={t_train:.1f}s")
+    _info(f"Training completed ({t_train:.1f}s)")
 
     results = []
     for obs_idx in range(1, num_observations + 1):
@@ -124,18 +140,32 @@ def evaluate_npe_sbi(
         if artifacts_dir is not None:
             _save_posterior(artifacts_dir, "npe_sbi", obs_idx, seed, posterior_samples)
 
+        sample_metrics = _compute_sample_metrics(
+            posterior_samples, ref_samples, metrics_to_compute
+        )
+        log_prob_val = float("nan")
+        if compute_log_prob:
+            try:
+                lp = posterior.log_prob(ref_samples, x=y_obs)
+                log_prob_val = float(lp.mean())
+            except Exception:
+                pass
+        sample_metrics["log_prob"] = log_prob_val
+        if artifacts_dir is not None:
+            _save_metrics(artifacts_dir, "npe_sbi", obs_idx, seed, sample_metrics)
         result = EvalResult(
             task_name=task_name,
             misspec_type=misspec_type,
             misspec_kwargs=misspec_kwargs,
             num_observation=obs_idx,
-            num_simulations=len(theta_calib),
-            c2st=float(c2st(posterior_samples, ref_samples)),
-            mmd=float(mmd(posterior_samples, ref_samples)),
+            num_context_size=len(theta_calib),
+            c2st=sample_metrics.get("c2st", float("nan")),
+            mmd=sample_metrics.get("mmd", float("nan")),
+            log_prob=log_prob_val,
             method="npe_sbi",
         )
         results.append(result)
-        print(f"  [npe_sbi] obs {obs_idx}: C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}, inference={t_inference:.1f}s")
+        _obs_line("npe_sbi", obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
 
     return results
 
@@ -143,11 +173,10 @@ def evaluate_npe_sbi(
 def evaluate_npepfn_y_fmpe(
     task,
     prior,
+    theta_syn,
+    y_tilde,
     theta_calib,
-    x_calib,
     y_calib,
-    misspec_simulator,
-    num_synthetic,
     num_posterior_samples,
     num_observations,
     task_name,
@@ -155,66 +184,40 @@ def evaluate_npepfn_y_fmpe(
     misspec_kwargs,
     seed=42,
     artifacts_dir=None,
+    concat_calib=False,
+    metrics_to_compute=("c2st", "mmd", "log_prob"),
 ):
-    """Two-stage method: TabPFN y-corrector + FMPE posterior.
-
-    Stage 1: Build a TabPFN y-predictor from calibration data.
-    Stage 2: Generate synthetic (theta, ỹ) pairs via the y-predictor.
-    Stage 3: Train FMPE on synthetic data for posterior inference.
+    """Train FMPE on pre-generated synthetic (theta, ỹ) data.
 
     Args:
         task: sbibm task.
         prior: Original prior distribution.
+        theta_syn: Synthetic parameters, shape (N_syn, dim_theta).
+        y_tilde: Synthetic y values, shape (N_syn, dim_y).
         theta_calib: Calibration parameters in original space.
-        x_calib: Misspecified simulator outputs for calibration params.
         y_calib: True simulator outputs for calibration params.
-        misspec_simulator: Misspecified simulator callable.
-        num_synthetic: Number of synthetic (theta, ỹ) pairs to generate.
-        num_posterior_samples: Samples to draw from each posterior.
-        num_observations: Number of sbibm observations to evaluate.
-        task_name: sbibm task name.
-        misspec_type: Misspecification type string.
-        misspec_kwargs: Misspecification kwargs dict.
+        concat_calib: If True, concatenate calibration data with synthetic data.
 
     Returns:
-        List of EvalResult with method="npepfn_y_fmpe".
+        List of EvalResult.
     """
-    # Stage 1: build y-predictor from calibration data
-    y_predictor = build_y_predictor(theta_calib, x_calib, y_calib)
-    train_features = torch.cat([theta_calib, x_calib], dim=1)
+    compute_log_prob = "log_prob" in metrics_to_compute
+    method_name = "npepfn_y_fmpe_concat" if concat_calib else "npepfn_y_fmpe"
 
-    # Save y-diagnostics: predicted vs true y on calibration set
-    if artifacts_dir is not None:
-        y_pred = generate_synthetic_y(y_predictor, theta_calib, x_calib, train_features=train_features)
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {
-                "y_pred": y_pred,
-                "y_true": y_calib,
-                "theta_calib": theta_calib,
-                "x_calib": x_calib,
-            },
-            artifacts_dir / f"y_diag_seed{seed}.pt",
-        )
+    theta_train = theta_syn
+    y_train = y_tilde
+    if concat_calib:
+        theta_train = torch.cat([theta_syn, theta_calib], dim=0)
+        y_train = torch.cat([y_tilde, y_calib], dim=0)
 
-    # Stage 2: generate synthetic dataset
-    theta_syn = prior.sample((num_synthetic,))
-    x_syn = misspec_simulator(theta_syn)
-    t0 = time.perf_counter()
-    y_tilde = generate_synthetic_y(y_predictor, theta_syn, x_syn, train_features=train_features)
-    t_gen = time.perf_counter() - t0
-    print(f"  [npepfn_y_fmpe] generated {num_synthetic} synthetic samples in {t_gen:.1f}s")
-
-    # Stage 3: train FMPE
     fmpe = FMPE(prior=prior)
-    fmpe.append_simulations(theta_syn, y_tilde)
+    fmpe.append_simulations(theta_train.float(), y_train.float())
     t0 = time.perf_counter()
     density_estimator = fmpe.train()
     t_train = time.perf_counter() - t0
     posterior = fmpe.build_posterior(density_estimator)
-    print(f"  [npepfn_y_fmpe] FMPE training={t_train:.1f}s")
+    _info(f"FMPE training completed ({t_train:.1f}s, n_train={len(theta_train)})")
 
-    # Stage 4: evaluate
     results = []
     for obs_idx in range(1, num_observations + 1):
         y_obs = task.get_observation(obs_idx)
@@ -225,21 +228,133 @@ def evaluate_npepfn_y_fmpe(
         t_inference = time.perf_counter() - t0
 
         if artifacts_dir is not None:
-            _save_posterior(artifacts_dir, "npepfn_y_fmpe", obs_idx, seed, posterior_samples)
+            _save_posterior(artifacts_dir, method_name, obs_idx, seed, posterior_samples)
 
+        sample_metrics = _compute_sample_metrics(
+            posterior_samples, ref_samples, metrics_to_compute
+        )
+        log_prob_val = float("nan")
+        if compute_log_prob:
+            try:
+                lp = posterior.log_prob(ref_samples, x=y_obs)
+                log_prob_val = float(lp.mean())
+            except Exception:
+                pass
+        sample_metrics["log_prob"] = log_prob_val
+        if artifacts_dir is not None:
+            _save_metrics(artifacts_dir, method_name, obs_idx, seed, sample_metrics)
         result = EvalResult(
             task_name=task_name,
             misspec_type=misspec_type,
             misspec_kwargs=misspec_kwargs,
             num_observation=obs_idx,
-            num_simulations=num_synthetic,
-            c2st=float(c2st(posterior_samples, ref_samples)),
-            mmd=float(mmd(posterior_samples, ref_samples)),
-            method="npepfn_y_fmpe",
+            num_context_size=len(theta_train),
+            c2st=sample_metrics.get("c2st", float("nan")),
+            mmd=sample_metrics.get("mmd", float("nan")),
+            log_prob=log_prob_val,
+            method=method_name,
         )
         results.append(result)
-        print(
-            f"  [npepfn_y_fmpe] obs {obs_idx}: C2ST={result.c2st:.3f}, MMD={result.mmd:.4f}, inference={t_inference:.1f}s"
+        _obs_line(method_name, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
+
+    return results
+
+
+def evaluate_npepfn_y_npepfn(
+    task,
+    theta_syn,
+    y_tilde,
+    theta_calib_t,
+    y_calib,
+    inverse,
+    unbounded_prior,
+    forward,
+    num_posterior_samples,
+    num_observations,
+    task_name,
+    misspec_type,
+    misspec_kwargs,
+    seed=42,
+    artifacts_dir=None,
+    concat_calib=False,
+    log_abs_det_jac=None,
+    metrics_to_compute=("c2st", "mmd", "log_prob"),
+    method_name=None,
+):
+    """NPE-PFN trained on pre-generated synthetic (theta, ỹ) data.
+
+    Args:
+        task: sbibm task.
+        theta_syn: Synthetic parameters in original space, shape (N_syn, dim_theta).
+        y_tilde: Synthetic y values, shape (N_syn, dim_y).
+        theta_calib_t: Calibration parameters in transformed space.
+        y_calib: True simulator outputs for calibration params.
+        inverse: Callable to map samples back to original space.
+        unbounded_prior: Prior in transformed space.
+        forward: Callable to map theta to transformed space.
+        concat_calib: If True, concatenate calibration data with synthetic data.
+        method_name: Override for the method name in results.
+
+    Returns:
+        List of EvalResult.
+    """
+    compute_log_prob = "log_prob" in metrics_to_compute
+    if method_name is None:
+        method_name = "npepfn_y_npepfn_concat" if concat_calib else "npepfn_y_npepfn"
+
+    theta_syn_t = forward(theta_syn)
+    theta_train = theta_syn_t
+    y_train = y_tilde
+    if concat_calib:
+        theta_train = torch.cat([theta_syn_t, theta_calib_t], dim=0)
+        y_train = torch.cat([y_tilde, y_calib], dim=0)
+
+    estimator = TabPFN_Based_NPE_PFN(prior=unbounded_prior)
+    estimator.append_simulations(theta_train, y_train)
+
+    results = []
+    for obs_idx in range(1, num_observations + 1):
+        y_obs = task.get_observation(obs_idx)
+        ref_samples = task.get_reference_posterior_samples(obs_idx)
+
+        t0 = time.perf_counter()
+        posterior_samples = inverse(
+            estimator.sample(
+                sample_shape=torch.Size([num_posterior_samples]),
+                x=y_obs,
+            )
         )
+        t_inference = time.perf_counter() - t0
+
+        if artifacts_dir is not None:
+            _save_posterior(artifacts_dir, method_name, obs_idx, seed, posterior_samples)
+
+        sample_metrics = _compute_sample_metrics(
+            posterior_samples, ref_samples, metrics_to_compute
+        )
+        log_prob_val = float("nan")
+        if compute_log_prob and log_abs_det_jac is not None:
+            try:
+                ref_t = forward(ref_samples)
+                lp = estimator.log_prob(ref_t, x=y_obs) + log_abs_det_jac(ref_t)
+                log_prob_val = float(lp.mean())
+            except Exception:
+                pass
+        sample_metrics["log_prob"] = log_prob_val
+        if artifacts_dir is not None:
+            _save_metrics(artifacts_dir, method_name, obs_idx, seed, sample_metrics)
+        result = EvalResult(
+            task_name=task_name,
+            misspec_type=misspec_type,
+            misspec_kwargs=misspec_kwargs,
+            num_observation=obs_idx,
+            num_context_size=len(theta_train),
+            c2st=sample_metrics.get("c2st", float("nan")),
+            mmd=sample_metrics.get("mmd", float("nan")),
+            log_prob=log_prob_val,
+            method=method_name,
+        )
+        results.append(result)
+        _obs_line(method_name, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
 
     return results

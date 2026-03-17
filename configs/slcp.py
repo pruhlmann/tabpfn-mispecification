@@ -6,14 +6,18 @@ import ml_collections
 def get_config():
     config = ml_collections.ConfigDict()
     config.task = "slcp"
-    config.misspec_type = "additive_noise"
+    config.misspec_type = "diagonal_covariance"
     config.misspec_kwargs = {}
-    config.num_simulations = 5000
-    config.num_posterior_samples = 1000
-    config.num_observations = 3
+    config.num_sim_mixed = 5000
+    config.num_posterior_samples = 10000
+    config.num_observations = 1
     config.seed = 42
     config.num_calibration = 50
-    config.num_synthetic = 1000
+    config.num_context = 2000
     config.use_prior_transform = False
-    config.seeds = [42, 123, 456, 789, 1024]
+    config.seeds = [42, 123, 456]
+    config.skip_methods = ["npepfn_mixed"]
+    config.batch_size = 2500
+    config.augment_M = 1
+    config.use_cache = True
     return config

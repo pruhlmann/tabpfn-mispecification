@@ -26,7 +26,9 @@ def main(_):
     for n_calib in calib_sizes:
         all_results[n_calib] = []
         for seed in seeds:
-            print(f"\n--- num_calibration = {n_calib}, seed = {seed} ---")
+            print(f"\n{'#' * 60}")
+            print(f"### n_calib={n_calib}  seed={seed}")
+            print(f"{'#' * 60}")
             artifacts_path = (
                 out_dir
                 / f"{cfg.task}_{cfg.misspec_type}"
@@ -37,25 +39,27 @@ def main(_):
                 task_name=cfg.task,
                 misspec_type=cfg.misspec_type,
                 misspec_kwargs=dict(cfg.misspec_kwargs),
-                num_simulations=cfg.num_simulations,
+                num_sim_mixed=cfg.num_sim_mixed,
                 num_calibration=n_calib,
                 num_posterior_samples=cfg.num_posterior_samples,
                 num_observations=cfg.num_observations,
-                num_synthetic=cfg.num_synthetic,
+                num_context=cfg.num_context,
                 seed=seed,
                 use_prior_transform=cfg.use_prior_transform,
                 artifacts_dir=artifacts_path,
                 skip_methods=list(cfg.get("skip_methods", [])),
+                batch_size=cfg.batch_size,
+                cache_data=cfg.get("cache_data", False),
+                use_cache=cfg.get("use_cache", True),
+                augment_M=cfg.get("augment_M", 1),
+                metrics_to_compute=list(cfg.get("metrics_to_compute", ("c2st", "mmd"))),
             )
             for r in results:
                 r.seed = seed
             all_results[n_calib].extend(results)
 
     out_file = out_dir / f"{cfg.task}_{cfg.misspec_type}_sweep.json"
-    serialized = {
-        str(n): [r.to_dict() for r in results]
-        for n, results in all_results.items()
-    }
+    serialized = {str(n): [r.to_dict() for r in results] for n, results in all_results.items()}
     with open(out_file, "w") as f:
         json.dump(serialized, f, indent=2)
     print(f"\nResults saved to {out_file}")

@@ -1,11 +1,17 @@
 """Mixed-context NPE-PFN with NaN masking for calibration data."""
 
+import math
+from typing import Optional
 import torch
+from torch import Tensor, Size
+from tqdm import tqdm
 
 from npe_pfn import TabPFN_Based_NPE_PFN
 
 
-def build_calibrated_estimator(theta_sim_t, x_sim, theta_calib_t, x_calib, y_calib, unbounded_prior):
+def build_calibrated_estimator(
+    theta_sim_t, x_sim, theta_calib_t, x_calib, y_calib, unbounded_prior
+):
     """NPE-PFN with mixed sim + calibration context using NaN masking.
 
     Extends feature space from [x] to [x, y]:
@@ -54,7 +60,7 @@ def sample_calibrated(estimator, y_obs, dim_x, num_samples):
     return estimator.sample(sample_shape=torch.Size([num_samples]), x=query)
 
 
-def build_y_predictor(theta_calib, x_calib, y_calib):
+def build_y_predictor(theta_calib, x_calib, y_calib) -> TabPFN_Based_NPE_PFN:
     """Build a TabPFN that predicts y from (theta, x).
 
     Context is calibration data only. TabPFN target = y_calib,
@@ -75,12 +81,79 @@ def build_y_predictor(theta_calib, x_calib, y_calib):
         1,
     )
     features = torch.cat([theta_calib, x_calib], dim=1)
-    estimator = TabPFN_Based_NPE_PFN(prior=dummy_prior)
+    estimator = TabPFN_Based_NPE_PFN(prior=dummy_prior, filter_type="no_filtering")
     estimator.append_simulations(y_calib, features)
     return estimator
 
 
-def generate_synthetic_y(y_predictor, theta, x, train_features=None, batched_mode=False):
+def build_y_predictor_theta_only(theta_calib, y_calib) -> TabPFN_Based_NPE_PFN:
+    """Build a TabPFN that predicts y from theta only (no x).
+
+    Context is calibration (theta, y) pairs. This bypasses the misspecified
+    simulator entirely, learning a direct theta -> y mapping.
+
+    Args:
+        theta_calib: Calibration parameters in original space, shape (N_calib, dim_theta).
+        y_calib: True simulator outputs, shape (N_calib, dim_y).
+
+    Returns:
+        TabPFN_Based_NPE_PFN estimator for y prediction.
+    """
+    dim_y = y_calib.shape[1]
+    dummy_prior = torch.distributions.Independent(
+        torch.distributions.Normal(torch.zeros(dim_y), 100.0 * torch.ones(dim_y)),
+        1,
+    )
+    estimator = TabPFN_Based_NPE_PFN(prior=dummy_prior, filter_type="no_filtering")
+    estimator.append_simulations(y_calib, theta_calib)
+    return estimator
+
+
+def generate_synthetic_y_theta_only(
+    y_predictor: TabPFN_Based_NPE_PFN,
+    theta: Tensor,
+    batched_mode: bool = False,
+    batch_size: Optional[int] = None,
+):
+    """Generate synthetic y samples using a theta-only y-predictor.
+
+    Args:
+        y_predictor: TabPFN estimator from build_y_predictor_theta_only.
+        theta: Parameter values, shape (N, dim_theta).
+        batched_mode: If true, use sample_batched.
+        batch_size: Batch size for batched mode.
+
+    Returns:
+        Synthetic y values, shape (N, dim_y).
+    """
+    query = theta
+    y_tilde = []
+    if not batched_mode:
+        for n in tqdm(range(query.shape[0]), desc="Generating synthetic y (theta-only)"):
+            y_tilde.append(y_predictor.sample(sample_shape=(1,), x=query[n]))
+        y_tilde = torch.cat(y_tilde, dim=0)
+    else:
+        if batch_size is None:
+            return y_predictor.sample_batched(x=query, sample_shape=torch.Size([1])).squeeze(1)
+        batch_size = min(batch_size, query.shape[0])
+        nb_batch = math.ceil(query.shape[0] / batch_size)
+        for batch_num in tqdm(range(nb_batch), desc=f"Sampling (theta-only) bs={batch_size}"):
+            y_tilde_batch = y_predictor.sample_batched(
+                x=query[batch_num * batch_size : (batch_num + 1) * batch_size],
+                sample_shape=torch.Size([1]),
+            ).squeeze(1)
+            y_tilde.append(y_tilde_batch)
+        y_tilde = torch.cat(y_tilde, dim=0)
+    return y_tilde
+
+
+def generate_synthetic_y(
+    y_predictor: TabPFN_Based_NPE_PFN,
+    theta: Tensor,
+    x: Tensor,
+    batched_mode: bool = False,
+    batch_size: Optional[int] = None,
+):
     """Generate synthetic y samples using the y-predictor.
 
     Uses batched sampling to get one ỹ per (theta_i, x_i) in a single call.
@@ -89,26 +162,29 @@ def generate_synthetic_y(y_predictor, theta, x, train_features=None, batched_mod
         y_predictor: TabPFN estimator from build_y_predictor.
         theta: Parameter values, shape (N, dim_theta).
         x: Misspecified simulator outputs, shape (N, dim_x).
-        train_features: Training features used to fit y_predictor, shape (N_calib, D).
-            If provided, query features are clipped to the training range to avoid
-            overflow in TabPFN's internal preprocessing.
         batched_mode: If true, use NPE-PFN internal sample_batched instead of calling `.sample()` N times
 
     Returns:
         Synthetic y values, shape (N, dim_y).
     """
     query = torch.cat([theta, x], dim=1)
-    if train_features is not None:
-        feat_min = train_features.min(dim=0).values
-        feat_max = train_features.max(dim=0).values
-        margin = (feat_max - feat_min) * 0.1 + 1e-6
-        query = query.clamp(feat_min - margin, feat_max + margin)
+    y_tilde = []
     if not batched_mode:
-        y_tilde = []
-        for n in range(query.shape[0]):
+        for n in tqdm(range(query.shape[0]), desc="Generating synthetic y", total=query.shape[0]):
             y_tilde.append(y_predictor.sample(sample_shape=(1,), x=query[n]))
         y_tilde = torch.cat(y_tilde, dim=0)
     else:
         # sample_batched returns shape (N, 1, dim_y)
-        y_tilde = y_predictor.sample_batched(x=query, sample_shape=torch.Size([1])).squeeze(1)
+        # Nb batch
+        if batch_size is None:
+            return y_predictor.sample_batched(x=query, sample_shape=torch.Size([1])).squeeze(1)
+        batch_size = min(batch_size, query.shape[0])
+        nb_batch = math.ceil(query.shape[0] / batch_size)
+        for batch_num in tqdm(range(nb_batch), desc=f"Sampling with bs={batch_size}"):
+            y_tilde_batch = y_predictor.sample_batched(
+                x=query[batch_num * batch_size : (batch_num + 1) * batch_size],
+                sample_shape=torch.Size([1]),
+            ).squeeze(1)
+            y_tilde.append(y_tilde_batch)
+        y_tilde = torch.cat(y_tilde, dim=0)
     return y_tilde

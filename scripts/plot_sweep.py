@@ -12,8 +12,7 @@ from tabpfn_misspec.plotting import (
     plot_calibration_comparison_seeds,
     plot_posterior_pairplot,
     plot_sweep_figure,
-    plot_synthetic_y_scatter,
-    plot_y_diagnostics,
+    plot_y_distributional,
 )
 
 _INPUT_DIR = flags.DEFINE_string("input_dir", "results", "Directory containing sweep JSON files.")
@@ -85,17 +84,14 @@ def main(_):
                     out_path = output_dir / task_name / "pairplots" / f"{run_tag}_obs{obs_idx}.pdf"
                     plot_posterior_pairplot(samples_by_method, ref_samples, output_path=out_path)
 
-            # Y-diagnostics
-            for y_diag_file in sorted(run_dir.glob("y_diag_seed*.pt")):
+            # Distributional y-diagnostics
+            for y_diag_file in sorted(run_dir.glob("y_dist_diag_seed*.pt")):
                 data = torch.load(y_diag_file, weights_only=True)
-                y_pred = data["y_pred"].numpy()
+                theta_diag = data["theta_diag"].numpy()
                 y_true = data["y_true"].numpy()
-                out_path = output_dir / task_name / "y_diagnostics" / f"{run_tag}.pdf"
-                plot_y_diagnostics(y_pred, y_true, output_path=out_path)
-
-                # Spatial scatter
-                scatter_path = output_dir / task_name / "y_scatter" / f"{run_tag}.pdf"
-                plot_synthetic_y_scatter(y_pred, y_true, output_path=scatter_path)
+                y_tilde = data["y_tilde"].numpy()
+                out_path = output_dir / task_name / "y_diagnostics" / f"{run_tag}_dist.pdf"
+                plot_y_distributional(theta_diag, y_true, y_tilde, output_path=out_path)
 
 
 if __name__ == "__main__":

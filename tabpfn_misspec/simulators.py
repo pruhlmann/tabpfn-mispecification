@@ -1,12 +1,32 @@
 """Misspecified simulator registry for sbibm tasks."""
 
 import math
+import os
+import warnings
+from contextlib import contextmanager
 
 import sbibm
 from sbibm.tasks.gaussian_mixture.task import GaussianMixture
 import torch
 import pyro
 import pyro.distributions as pdist
+
+# Suppress diffeqtorch Python warnings (e.g. "JULIA_SYSIMAGE_DIFFEQTORCH not set")
+warnings.filterwarnings("ignore", module="diffeqtorch")
+
+
+@contextmanager
+def suppress_julia_output():
+    """Redirect fd-level stderr to /dev/null to silence Julia runtime warnings."""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    old_stderr = os.dup(2)
+    os.dup2(devnull, 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr, 2)
+        os.close(devnull)
+        os.close(old_stderr)
 
 
 def _additive_noise(task_name, noise_std=0.5):
@@ -36,7 +56,9 @@ def _scale_shift(task_name, scale=2.0, shift=1.0):
 def _one_gaussian(task_name, mean=0.0, std=1.0):
     """Replace the true simulator with a single Gaussian, ignoring theta."""
     if task_name != "gaussian_mixture":
-        raise ValueError(f"_one_gaussian misspecification is only defined for 'gaussian_mixture', got '{task_name}'")
+        raise ValueError(
+            f"_one_gaussian misspecification is only defined for 'gaussian_mixture', got '{task_name}'"
+        )
     task: GaussianMixture = sbibm.get_task("gaussian_mixture")
     dim_data = task.dim_data
 
@@ -70,13 +92,14 @@ def _weekend_delay(task_name, delay_fraction=0.05):
         num_samples = theta.shape[0]
 
         us = []
-        for i in range(num_samples):
-            u, t = task.de(task.u0, task.tspan, theta[i, :])
+        with suppress_julia_output():
+            for i in range(num_samples):
+                u, t = task.de(task.u0, task.tspan, theta[i, :])
 
-            if u.shape != torch.Size([3, int(task.dim_data_raw / 3)]):
-                u = float("nan") * torch.ones((3, int(task.dim_data_raw / 3)))
-                u = u.double()
-            us.append(u.reshape(1, 3, -1))
+                if u.shape != torch.Size([3, int(task.dim_data_raw / 3)]):
+                    u = float("nan") * torch.ones((3, int(task.dim_data_raw / 3)))
+                    u = u.double()
+                us.append(u.reshape(1, 3, -1))
         us = torch.cat(us).float()  # (num_samples, 3, 161)
 
         # Extract infected compartment: (num_samples, 161)
@@ -115,6 +138,200 @@ def _weekend_delay(task_name, delay_fraction=0.05):
     return misspecified_simulator
 
 
+def _carrying_capacity(task_name, K=100):
+    """Lotka-Volterra with density-dependent prey growth.
+
+    Replaces `dx/dt = α·x - β·x·y` with `dx/dt = α·x·(1 - x/K) - β·x·y`.
+    The carrying capacity K is fixed and not inferred.
+    """
+    if task_name != "lotka_volterra":
+        raise ValueError(
+            f"_carrying_capacity is only defined for 'lotka_volterra', got '{task_name}'"
+        )
+    from diffeqtorch import DiffEq
+
+    task = sbibm.get_task("lotka_volterra")
+
+    de = DiffEq(
+        f="""
+        function f(du, u, p, t)
+            x, y = u
+            alpha, beta, gamma, delta, K = p
+            du[1] = alpha * x * (1 - x / K) - beta * x * y
+            du[2] = -gamma * y + delta * x * y
+        end
+        """,
+        saveat=task.saveat,
+        debug=False,
+    )
+
+    dim_data_raw = task.dim_data_raw  # 2 * num_timepoints
+    dim_data = task.dim_data  # 20
+
+    def misspecified_simulator(theta):
+        num_samples = theta.shape[0]
+        # Append K to each parameter vector
+        K_col = torch.full((num_samples, 1), float(K))
+        p = torch.cat([theta, K_col], dim=1)
+
+        us = []
+        with suppress_julia_output():
+            for i in range(num_samples):
+                u, t = de(task.u0, task.tspan, p[i, :])
+                if u.shape != torch.Size([2, int(dim_data_raw / 2)]):
+                    u = float("nan") * torch.ones((2, int(dim_data_raw / 2)))
+                    u = u.double()
+                us.append(u.reshape(1, 2, -1))
+        us = torch.cat(us).float()  # (num_samples, 2, num_timepoints)
+
+        # Subsample every 21 steps, flatten to (num_samples, dim_data)
+        us = us[:, :, ::21].reshape(num_samples, -1)
+
+        nan_mask = torch.isnan(us).any(dim=1)
+        data = float("nan") * torch.ones((num_samples, dim_data))
+        ok = ~nan_mask
+        if ok.any():
+            data[ok, :] = pyro.sample(
+                "data",
+                pdist.LogNormal(
+                    loc=torch.log(us[ok, :].clamp(1e-10, 10000.0)),
+                    scale=0.1,
+                ).to_event(1),
+            )
+        return data
+
+    return misspecified_simulator
+
+
+def _diagonal_covariance(task_name):
+    """SLCP simulator that ignores the correlation parameter (forces rho=0).
+
+    The model assumes a full covariance matrix, but the true data has
+    independent dimensions — a common simplifying assumption in practice.
+    """
+    if task_name != "slcp":
+        raise ValueError(f"_diagonal_covariance is only defined for 'slcp', got '{task_name}'")
+
+    num_data = 4
+
+    def misspecified_simulator(theta):
+        num_samples = theta.shape[0]
+
+        m = torch.stack(
+            (theta[:, 0], theta[:, 1])
+        ).T
+        if m.dim() == 1:
+            m.unsqueeze_(0)
+
+        s1 = theta[:, 2] ** 2
+        s2 = theta[:, 3] ** 2
+        # Ignore theta[:, 4] — force rho=0
+
+        S = torch.zeros((num_samples, 2, 2))
+        S[:, 0, 0] = s1 ** 2 + 1e-6
+        S[:, 1, 1] = s2 ** 2 + 1e-6
+
+        data_dist = pdist.MultivariateNormal(
+            m.unsqueeze(1).float(), S.unsqueeze(1).float()
+        ).expand((num_samples, num_data))
+
+        return pyro.sample("data", data_dist).reshape(num_samples, -1)
+
+    return misspecified_simulator
+
+
+def _heavy_tail_likelihood(task_name, df=3):
+    """SLCP simulator with Student-t observations instead of Gaussian.
+
+    Replaces MVN(m, S) with a multivariate Student-t(df, m, S).
+    The model assumes Gaussian, but the real data has heavier tails.
+    """
+    if task_name != "slcp":
+        raise ValueError(
+            f"_heavy_tail_likelihood is only defined for 'slcp', got '{task_name}'"
+        )
+
+    num_data = 4
+
+    def misspecified_simulator(theta):
+        num_samples = theta.shape[0]
+
+        m = torch.stack((theta[:, 0], theta[:, 1])).T
+        if m.dim() == 1:
+            m.unsqueeze_(0)
+
+        s1 = theta[:, 2] ** 2
+        s2 = theta[:, 3] ** 2
+        rho = torch.tanh(theta[:, 4])
+
+        S = torch.empty((num_samples, 2, 2))
+        S[:, 0, 0] = s1 ** 2 + 1e-6
+        S[:, 0, 1] = rho * s1 * s2
+        S[:, 1, 0] = rho * s1 * s2
+        S[:, 1, 1] = s2 ** 2 + 1e-6
+
+        # Cholesky for scale_tril required by MultivariateStudentT
+        L = torch.linalg.cholesky(S)
+
+        # Sample num_data independent Student-t draws per sample
+        samples = []
+        for i in range(num_data):
+            dist = pdist.MultivariateStudentT(
+                df=df, loc=m.float(), scale_tril=L.float()
+            )
+            samples.append(pyro.sample(f"data_{i}", dist))
+        # Stack to (num_samples, num_data, 2) then flatten to (num_samples, 8)
+        return torch.stack(samples, dim=1).reshape(num_samples, -1)
+
+    return misspecified_simulator
+
+
+def _heteroscedastic(task_name, alpha=0.5):
+    """SLCP simulator with input-dependent variance.
+
+    Scales the covariance by (1 + alpha * ||m||), so variance grows
+    with the magnitude of the mean. The model assumes homoscedastic noise.
+    """
+    if task_name != "slcp":
+        raise ValueError(
+            f"_heteroscedastic is only defined for 'slcp', got '{task_name}'"
+        )
+
+    num_data = 4
+
+    def misspecified_simulator(theta):
+        num_samples = theta.shape[0]
+
+        m = torch.stack((theta[:, 0], theta[:, 1])).T
+        if m.dim() == 1:
+            m.unsqueeze_(0)
+
+        s1 = theta[:, 2] ** 2
+        s2 = theta[:, 3] ** 2
+        rho = torch.tanh(theta[:, 4])
+
+        S = torch.empty((num_samples, 2, 2))
+        S[:, 0, 0] = s1 ** 2
+        S[:, 0, 1] = rho * s1 * s2
+        S[:, 1, 0] = rho * s1 * s2
+        S[:, 1, 1] = s2 ** 2
+
+        # Scale covariance by (1 + alpha * ||m||)
+        m_norm = torch.norm(m, dim=1, keepdim=True).unsqueeze(2)  # (N, 1, 1)
+        S = S * (1.0 + alpha * m_norm)
+
+        S[:, 0, 0] += 1e-6
+        S[:, 1, 1] += 1e-6
+
+        data_dist = pdist.MultivariateNormal(
+            m.unsqueeze(1).float(), S.unsqueeze(1).float()
+        ).expand((num_samples, num_data))
+
+        return pyro.sample("data", data_dist).reshape(num_samples, -1)
+
+    return misspecified_simulator
+
+
 def _heavy_tail_radius(task_name, df=2):
     """Two Moons simulator with Student-t radius instead of Gaussian.
 
@@ -127,6 +344,7 @@ def _heavy_tail_radius(task_name, df=2):
     ang = torch.tensor([-math.pi / 4.0])
     c = torch.cos(ang)
     s = torch.sin(ang)
+    shift = 0.2
 
     def misspecified_simulator(theta):
         n = theta.shape[0]
@@ -137,7 +355,7 @@ def _heavy_tail_radius(task_name, df=2):
         # Rotate theta by -pi/4 and apply abs-shift (sbibm _map_fun)
         z0 = (c * theta[:, 0] - s * theta[:, 1]).reshape(-1, 1)
         z1 = (s * theta[:, 0] + c * theta[:, 1]).reshape(-1, 1)
-        return p + torch.cat([-torch.abs(z0), z1], dim=1)
+        return p + (1.0 + shift) * torch.cat([-torch.abs(z0), z1], dim=1)
 
     return misspecified_simulator
 
@@ -150,7 +368,11 @@ _REGISTRY = {
     # ("two_moons", "wrong_likelihood"): _two_moons_wrong_likelihood,
     ("gaussian_mixture", "one_gaussian"): _one_gaussian,
     ("two_moons", "heavy_tail_radius"): _heavy_tail_radius,
+    ("slcp", "diagonal_covariance"): _diagonal_covariance,
+    ("slcp", "heavy_tail_likelihood"): _heavy_tail_likelihood,
+    ("slcp", "heteroscedastic"): _heteroscedastic,
     ("sir", "weekend_delay"): _weekend_delay,
+    ("lotka_volterra", "carrying_capacity"): _carrying_capacity,
 }
 
 
@@ -171,7 +393,7 @@ def get_misspecified_simulator(task_name, misspec_type, **kwargs):
             f"Unknown misspec_type '{misspec_type}' for task '{task_name}'. "
             f"Available: {list(list_misspec_types(task_name))}"
         )
-    print("Loading misspecified simulator:", factory, "for task:", task_name)
+    print(f"  Simulator: {misspec_type} ({task_name})")
     return factory(task_name, **kwargs)
 
 
