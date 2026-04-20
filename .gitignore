@@ -201,6 +201,8 @@ __marimo__/
 
 # Project-specific
 results/
+report/
+results_old/
 outputs/
 sbi-logs/
 *.json
