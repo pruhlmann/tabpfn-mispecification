@@ -18,14 +18,14 @@
 #   sbatch slurm/sweep.slurm two_moons        # override task
 #
 # Available tasks: any configs/<name>.py (gaussian_linear, two_moons,
-# gaussian_mixture, slcp, sir, lotka_volterra).
+# gaussian_mixture, slcp, sir, lotka_volterra, gaussian_linear_hd).
 
 set -euo pipefail
 
 TASK="${1:-gaussian_linear}"
 CONFIG="configs/${TASK}.py"
 RESULTS="${RESULTS:-$WORK/projects/tabpfn-mispecification/results}"
-export HF_HOME="${HF_HOME:-$WORK/huggingface_cache}"
+export HF_HOME="$WORK/huggingface_cache"
 export TABPFN_MODEL_CACHE_DIR="$HF_HOME"
 export TABPFN_DISABLE_TELEMETRY=1
 

@@ -17,6 +17,7 @@ from tabpfn_misspec.plotting import (
     plot_y_distributional,
 )
 from tabpfn_misspec.simulators import get_misspecified_simulator
+from tabpfn_misspec.tasks import get_task
 
 __all__ = [
     "build_calibrated_estimator",
@@ -24,6 +25,7 @@ __all__ = [
     "evaluate_calibrated_misspecification",
     "generate_synthetic_y",
     "get_parameter_transform",
+    "get_task",
     "c2st",
     "get_misspecified_simulator",
     "mmd",

@@ -6,12 +6,12 @@ import warnings
 from dataclasses import asdict, dataclass
 from typing import List
 
-import sbibm
 import torch
 
 from npe_pfn import TabPFN_Based_NPE_PFN
 from tabpfn_misspec.metrics import c2st, mmd
 from tabpfn_misspec.simulators import get_misspecified_simulator, suppress_julia_output
+from tabpfn_misspec.tasks import get_task
 
 # ---------------------------------------------------------------------------
 # Output formatting helpers
@@ -344,7 +344,7 @@ def evaluate_calibrated_misspecification(
 
     torch.manual_seed(seed)
 
-    task = sbibm.get_task(task_name)
+    task = get_task(task_name)
     prior = task.get_prior_dist()
     _raw_true_simulator = task.get_simulator()
     misspec_simulator = get_misspecified_simulator(task_name, misspec_type, **misspec_kwargs)

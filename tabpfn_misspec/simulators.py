@@ -11,6 +11,8 @@ import torch
 import pyro
 import pyro.distributions as pdist
 
+from tabpfn_misspec.tasks import get_task
+
 # Suppress diffeqtorch Python warnings (e.g. "JULIA_SYSIMAGE_DIFFEQTORCH not set")
 warnings.filterwarnings("ignore", module="diffeqtorch")
 
@@ -360,6 +362,23 @@ def _heavy_tail_radius(task_name, df=2):
     return misspecified_simulator
 
 
+def _linear_misspec(task_name, sigma_x=0.1):
+    """Linear misspecified simulator: x = A @ theta + b + eps_x.
+
+    Reads task.A and task.b from the custom task; intended for
+    ``gaussian_linear_hd`` (and any future linear-Gaussian custom task that
+    exposes the same attributes).
+    """
+    task = get_task(task_name)
+    A, b = task.A, task.b
+    dim_x = A.shape[0]
+
+    def misspecified_simulator(theta):
+        return theta @ A.T + b + sigma_x * torch.randn(theta.shape[0], dim_x)
+
+    return misspecified_simulator
+
+
 _REGISTRY = {
     # Generic (any task)
     "additive_noise": _additive_noise,
@@ -373,6 +392,7 @@ _REGISTRY = {
     ("slcp", "heteroscedastic"): _heteroscedastic,
     ("sir", "weekend_delay"): _weekend_delay,
     ("lotka_volterra", "carrying_capacity"): _carrying_capacity,
+    ("gaussian_linear_hd", "linear_misspec"): _linear_misspec,
 }
 
 
