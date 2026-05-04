@@ -12,7 +12,7 @@ def get_config():
     config = ml_collections.ConfigDict()
     config.task = "gaussian_linear_hd"
     config.misspec_type = "linear_misspec"
-    config.misspec_kwargs = {"sigma_x": 0.1}
+    config.misspec_kwargs = {"sigma_x": 0.5}
     config.num_sim_mixed = 5000
     config.num_posterior_samples = 5000
     config.num_observations = 1

@@ -28,9 +28,10 @@ class GaussianLinearHD:
     True model:    y = C @ theta + d + eps_y,   eps_y ~ N(0, sigma_y^2 I_{dim_y})
     Prior:         theta ~ N(0, I_{dim_theta})
 
-    The matrices ``A``, ``b`` for the misspecified linear simulator are also
-    generated here (different fixed sub-seed) and exposed as attributes so the
-    ``linear_misspec`` factory in ``simulators.py`` can reuse them.
+    The matrices ``A``, ``b`` for the misspecified linear simulator are
+    near-copies of ``C``, ``d`` perturbed by ``misspec_matrix_eps``, so the
+    dominant source of misspecification is the noise scale ``sigma_x`` (set
+    on the ``linear_misspec`` factory) differing from ``sigma_y``.
 
     All matrices and the per-observation ``theta_star`` / ``y_obs`` are
     deterministic given the seeds, so repeated instantiation is identical.
@@ -42,16 +43,16 @@ class GaussianLinearHD:
         self,
         dim_theta=25,
         dim_y=8,
-        dim_x=8,
         sigma_y=0.1,
         num_observations=1,
         num_posterior_samples=10000,
         matrix_seed=0,
         obs_seed=1,
+        misspec_matrix_eps=0.01,
     ):
         self.dim_parameters = dim_theta
         self.dim_data = dim_y
-        self.dim_x = dim_x
+        self.dim_x = dim_y
         self.sigma_y = sigma_y
         self.num_observations = num_observations
         self.num_posterior_samples = num_posterior_samples
@@ -59,8 +60,12 @@ class GaussianLinearHD:
         g = torch.Generator().manual_seed(matrix_seed)
         self.C = torch.randn(dim_y, dim_theta, generator=g)
         self.d = torch.randn(dim_y, generator=g)
-        self.A = torch.randn(dim_x, dim_theta, generator=g)
-        self.b = torch.randn(dim_x, generator=g)
+        # A, b are small perturbations of C, d so the misspec is dominated by
+        # the noise-scale mismatch (sigma_x vs sigma_y), not the linear map.
+        self.A = self.C + misspec_matrix_eps * torch.randn(
+            dim_y, dim_theta, generator=g
+        )
+        self.b = self.d + misspec_matrix_eps * torch.randn(dim_y, generator=g)
 
         # Closed-form posterior: prior N(0, I), likelihood N(C theta + d, sigma_y^2 I)
         prec = torch.eye(dim_theta) + (self.C.T @ self.C) / (sigma_y ** 2)

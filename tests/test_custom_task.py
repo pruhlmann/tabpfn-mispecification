@@ -42,11 +42,20 @@ def test_get_task_dispatch():
 
 def test_linear_misspec_factory():
     task = get_task("gaussian_linear_hd")
-    sim = get_misspecified_simulator("gaussian_linear_hd", "linear_misspec", sigma_x=0.1)
+    sim = get_misspecified_simulator("gaussian_linear_hd", "linear_misspec", sigma_x=0.5)
 
     theta = task.get_prior_dist().sample((32,))
     x = sim(theta)
     assert x.shape == (32, task.dim_x)
+
+
+def test_misspec_matrices_close_to_truth():
+    """A ~ C and b ~ d so the dominant misspec is the noise scale, not the map."""
+    task = GaussianLinearHD(misspec_matrix_eps=0.01)
+    rel_A = torch.linalg.norm(task.A - task.C) / torch.linalg.norm(task.C)
+    rel_b = torch.linalg.norm(task.b - task.d) / torch.linalg.norm(task.d)
+    assert rel_A < 0.05
+    assert rel_b < 0.05
 
 
 def test_reference_posterior_matches_closed_form():
