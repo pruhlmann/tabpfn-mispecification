@@ -3,9 +3,6 @@ name = "tabpfn-misspecification"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
-[system-requirements]
-cuda = "12.1"
-
 [dependencies]
 python = "3.11.*"
 numpy = "*"
@@ -15,19 +12,34 @@ scipy = "<1.13"
 jupyter = ">=1.1.1,<2"
 
 [pypi-dependencies]
-torch = {version = "~=2.6.0", index = "https://download.pytorch.org/whl/cu124"}
 tabpfn-misspec = { path = ".", editable = true }
 sbibm = "*"
-sbi = "*"
+sbi = ">=0.23"
 pot = "*"
 ml-collections = "*"
 absl-py = "*"
 tabpfn = ">=2.0.0,<3.0.0"
 diffeqtorch = "*"
 
+[feature.cpu.pypi-dependencies]
+torch = { version = "~=2.6.0", index = "https://download.pytorch.org/whl/cpu" }
+
+[feature.gpu.system-requirements]
+cuda = "12.1"
+
+[feature.gpu.pypi-dependencies]
+torch = { version = "~=2.6.0", index = "https://download.pytorch.org/whl/cu124" }
+
+[environments]
+default = { features = ["cpu"], solve-group = "cpu" }
+gpu = { features = ["gpu"], solve-group = "gpu" }
+
 [tasks]
 experiment = "python scripts/run_experiment.py"
 experiment-debug = "python scripts/run_experiment.py --config configs/debug.py"
 sweep = "python scripts/run_calibration_sweep.py"
 sweep-debug = "python scripts/run_calibration_sweep.py --config configs/debug.py"
+smoke = "python scripts/smoke_test.py"
 plot = "python scripts/plot_sweep.py"
+sync = "rsync -avzhP --exclude-from=.rsyncignore ./ zay:/lustre/fswork/projects/rech/vxk/uob71la/projects/tabpfn-mispecification/"
+sync-tabpfn-weights = "rsync -avzhP ~/.cache/tabpfn/ zay:/lustre/fswork/projects/rech/vxk/uob71la/huggingface_cache/"

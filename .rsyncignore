@@ -1,0 +1,41 @@
+# Pixi local envs (huge, platform-specific — Jean Zay solves its own GPU env)
+.pixi/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+
+# Notebooks / editors / OS
+.ipynb_checkpoints/
+.idea/
+.vscode/
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local virtualenvs (defensive)
+.venv/
+venv/
+env/
+
+# Outputs and logs — keep Jean Zay-side outputs intact
+results/
+results_old/
+outputs/
+sbi-logs/
+
+# LaTeX build (gitignored locally)
+report/
+
+# Claude Code local state
+.claude/
