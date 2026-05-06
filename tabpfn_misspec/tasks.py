@@ -14,6 +14,8 @@ import sbibm
 import torch
 from torch.distributions import Independent, Normal
 
+from tabpfn_misspec.lotka_volterra_hd import LotkaVolterraHD
+
 
 def get_task(task_name):
     factory = _CUSTOM_TASKS.get(task_name)
@@ -113,4 +115,5 @@ class GaussianLinearHD:
 
 _CUSTOM_TASKS = {
     "gaussian_linear_hd": GaussianLinearHD,
+    "lotka_volterra_hd": LotkaVolterraHD,
 }

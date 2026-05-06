@@ -10,6 +10,7 @@ matplotlib = "*"
 scikit-learn = "<1.6"
 scipy = "<1.13"
 jupyter = ">=1.1.1,<2"
+pytest = ">=9.0.3,<10"
 
 [pypi-dependencies]
 tabpfn-misspec = { path = ".", editable = true }
@@ -43,3 +44,5 @@ smoke = "python scripts/smoke_test.py"
 plot = "python scripts/plot_sweep.py"
 sync = "rsync -avzhP --exclude-from=.rsyncignore ./ zay:/lustre/fswork/projects/rech/vxk/uob71la/projects/tabpfn-mispecification/"
 sync-tabpfn-weights = "rsync -avzhP ~/.cache/tabpfn/ zay:/lustre/fswork/projects/rech/vxk/uob71la/huggingface_cache/"
+fetch-results = "rsync -avzhP zay:/lustre/fswork/projects/rech/vxk/uob71la/projects/tabpfn-mispecification/results/ ./results/"
+fetch-and-plot = { depends-on = ["fetch-results", "plot"] }

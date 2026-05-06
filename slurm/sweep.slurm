@@ -18,7 +18,8 @@
 #   sbatch slurm/sweep.slurm two_moons        # override task
 #
 # Available tasks: any configs/<name>.py (gaussian_linear, two_moons,
-# gaussian_mixture, slcp, sir, lotka_volterra, gaussian_linear_hd).
+# gaussian_mixture, slcp, sir, lotka_volterra, gaussian_linear_hd,
+# lotka_volterra_hd).
 
 set -euo pipefail
 
@@ -30,6 +31,12 @@ export TABPFN_MODEL_CACHE_DIR="$HF_HOME"
 export TABPFN_DISABLE_TELEMETRY=1
 
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
+
+# Julia 1.10 + patched diffeqtorch deps (see slurm/JEAN_ZAY_SETUP.md)
+export PATH="$WORK/julia-1.10.11/bin:$PATH"
+export JULIA_PROJECT="$PWD/.pixi/envs/gpu/lib/python3.11/site-packages/diffeqtorch/julia"
+export JULIA_DEPOT_PATH="$WORK/.julia"
+export LD_LIBRARY_PATH="$PWD/.pixi/envs/gpu/lib:${LD_LIBRARY_PATH:-}"
 
 if [[ ! -f "$CONFIG" ]]; then
     echo "Config not found: $CONFIG" >&2

@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+**Cluster:** Jean Zay (SLURM). Submit long-running jobs via `sbatch slurm/sweep.slurm <task>` (or analogous batch scripts); use `srun --pty` for short interactive checks. Do not run training directly on the login node. This supersedes any global "use oarsub on edgar" rule for this repo.
+
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.

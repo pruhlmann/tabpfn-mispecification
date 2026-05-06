@@ -362,6 +362,53 @@ def _heavy_tail_radius(task_name, df=2):
     return misspecified_simulator
 
 
+def _wrong_noise_scale(task_name, scale=0.5):
+    """LV-HD with wrong observation-noise scale (true scale = 0.1).
+
+    Same Julia ODE solve as the true simulator; only the LogNormal scale on
+    the final observation step changes.
+    """
+    if task_name != "lotka_volterra_hd":
+        raise ValueError(
+            f"_wrong_noise_scale is only defined for 'lotka_volterra_hd', got '{task_name}'"
+        )
+    from tabpfn_misspec.lotka_volterra_hd import _theta_to_p
+
+    task = get_task("lotka_volterra_hd")
+    de = task.de
+    u0, tspan = task.u0, task.tspan
+    dim_data_raw, dim_data = task.dim_data_raw, task.dim_data
+
+    def misspecified_simulator(theta):
+        num_samples = theta.shape[0]
+        p = _theta_to_p(theta)
+
+        us = []
+        with suppress_julia_output():
+            for n in range(num_samples):
+                u, _t = de(u0, tspan, p[n, :])
+                if u.shape != torch.Size([5, int(dim_data_raw / 5)]):
+                    u = float("nan") * torch.ones(
+                        (5, int(dim_data_raw / 5))
+                    ).double()
+                us.append(u.reshape(1, 5, -1))
+        us = torch.cat(us).float()[:, :, ::21].reshape(num_samples, -1)
+
+        data = float("nan") * torch.ones((num_samples, dim_data))
+        ok = ~torch.isnan(us).any(dim=1)
+        if ok.any():
+            data[ok] = pyro.sample(
+                "data",
+                pdist.LogNormal(
+                    loc=torch.log(us[ok].clamp(1e-10, 1e4)),
+                    scale=scale,
+                ).to_event(1),
+            )
+        return data
+
+    return misspecified_simulator
+
+
 def _linear_misspec(task_name, sigma_x=0.1):
     """Linear misspecified simulator: x = A @ theta + b + eps_x.
 
@@ -375,6 +422,31 @@ def _linear_misspec(task_name, sigma_x=0.1):
 
     def misspecified_simulator(theta):
         return theta @ A.T + b + sigma_x * torch.randn(theta.shape[0], dim_x)
+
+    return misspecified_simulator
+
+
+def _nonlinear_theta(task_name, sigma_x=0.5, alpha=0.1):
+    """Quadratic-in-theta misspecified simulator.
+
+    x = theta @ A.T + b + alpha * (theta**2) @ A.T + sigma_x * eps_x
+
+    Reduces to ``_linear_misspec`` when alpha == 0. Reuses ``task.A`` and
+    ``task.b`` (the same near-copy of ``C``, ``d`` used by the linear
+    misspec), so the only structural difference vs ``linear_misspec`` is
+    the elementwise quadratic term in theta.
+    """
+    task = get_task(task_name)
+    A, b = task.A, task.b
+    dim_x = A.shape[0]
+
+    def misspecified_simulator(theta):
+        return (
+            theta @ A.T
+            + b
+            + alpha * (theta ** 2) @ A.T
+            + sigma_x * torch.randn(theta.shape[0], dim_x)
+        )
 
     return misspecified_simulator
 
@@ -393,6 +465,8 @@ _REGISTRY = {
     ("sir", "weekend_delay"): _weekend_delay,
     ("lotka_volterra", "carrying_capacity"): _carrying_capacity,
     ("gaussian_linear_hd", "linear_misspec"): _linear_misspec,
+    ("gaussian_linear_hd", "nonlinear_theta"): _nonlinear_theta,
+    ("lotka_volterra_hd", "wrong_noise_scale"): _wrong_noise_scale,
 }
 
 

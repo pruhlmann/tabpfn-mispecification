@@ -205,6 +205,8 @@ report/
 results_old/
 outputs/
 sbi-logs/
+tabpfn_misspec/files/
+tabpfn_misspec/*/files/
 *.json
 
 # OS
