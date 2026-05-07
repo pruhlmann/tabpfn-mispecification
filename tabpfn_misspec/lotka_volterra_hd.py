@@ -148,55 +148,16 @@ class LotkaVolterraHD(Task):
     def _sample_reference_posterior(
         self, num_samples, num_observation=None, observation=None,
     ):
-        # Deviation from sbibm Appendix B.1: B.1 uses sbi's Slice kernel via
-        # sbibm.algorithms.pyro.mcmc, but that wrapper imports sbi.mcmc which
-        # was removed in sbi>=0.20. Use Pyro's NUTS directly to draw the
-        # proposal samples that feed the NSF + rejection-sampling stage.
-        from pyro.infer.mcmc import MCMC, NUTS
-        from sbibm.algorithms.pytorch.baseline_rejection import run as run_rejection
-        from sbibm.algorithms.pytorch.utils.proposal import get_proposal
+        # sbibm Appendix B.1: Slice-MCMC -> NSF density -> rejection sampling.
+        # Slice kernel is sbi.samplers.mcmc.slice_numpy.SliceSamplerVectorized
+        # (gradient-free, single-process; avoids backprop through the Julia ODE).
+        from tabpfn_misspec._gt_pipeline import run_slice_nsf_rejection_pipeline
 
-        initial_params = (
-            self.get_true_parameters(num_observation=num_observation)
-            if num_observation is not None else None
-        )
-        conditioned_model = self._get_pyro_model(
-            num_observation=num_observation, observation=observation
-        )
-        transforms = self._get_transforms(
+        return run_slice_nsf_rejection_pipeline(
+            task=self,
+            num_samples=num_samples,
             num_observation=num_observation,
             observation=observation,
-            automatic_transforms_enabled=True,
-        )
-        kernel = NUTS(model=conditioned_model, transforms=transforms, jit_compile=False)
-        if initial_params is not None:
-            initial_params = {"parameters": transforms["parameters"](initial_params)}
-        mcmc = MCMC(
-            kernel,
-            num_samples=num_samples,
-            warmup_steps=2_000,
-            num_chains=1,
-            initial_params=initial_params,
-        )
-        mcmc.run()
-        proposal_samples = mcmc.get_samples()["parameters"].squeeze()
-        proposal_dist = get_proposal(
-            task=self,
-            samples=proposal_samples,
-            prior_weight=0.1,
-            bounded=True,
-            density_estimator="flow",
-            flow_model="nsf",
-        )
-        return run_rejection(
-            task=self,
-            num_observation=num_observation,
-            observation=observation,
-            num_samples=num_samples,
-            batch_size=10_000,
-            num_batches_without_new_max=1_000,
-            multiplier_M=1.2,
-            proposal_dist=proposal_dist,
         )
 
 

@@ -12,8 +12,13 @@
 
 # Generate reference posterior + true parameters + observations for
 # lotka_volterra_hd. Long-running CPU job (sbibm Appendix B.1 pipeline:
-# Slice-MCMC -> NSF -> rejection sampling). Outputs land under
-# tabpfn_misspec/files/lotka_volterra_hd/num_observation_{1,2,3}/.
+# Slice-MCMC via sbi.samplers.mcmc.slice_numpy.SliceSamplerVectorized -> NSF
+# density estimator -> rejection sampling). Outputs land under
+# tabpfn_misspec/lotka_volterra_hd/files/num_observation_{1,2,3}/.
+#
+# n_jobs=1: observations run sequentially. Julia DiffEq state isn't safe to
+# clone across joblib loky workers; parallelizing here is a future SLURM array
+# job, not a per-process concern.
 #
 # Submit:
 #   sbatch slurm/lvhd_setup.slurm
@@ -28,6 +33,14 @@ export PATH="$WORK/julia-1.10.11/bin:$PATH"
 export JULIA_PROJECT="$PWD/.pixi/envs/default/lib/python3.11/site-packages/diffeqtorch/julia"
 export JULIA_DEPOT_PATH="$WORK/.julia"
 export LD_LIBRARY_PATH="$PWD/.pixi/envs/default/lib:${LD_LIBRARY_PATH:-}"
+
+# Let numpy/torch/MKL spread NSF training and rejection-sampling batched
+# log_prob evals across the requested CPUs. Without these, BLAS often defaults
+# to 1 thread under SLURM cgroups.
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 
 mkdir -p logs
 

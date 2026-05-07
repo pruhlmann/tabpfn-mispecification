@@ -145,5 +145,112 @@ def test_wrong_noise_scale_factory():
     assert x.shape == (2, 50)
 
 
+def test_slice_mcmc_matches_sbibm_gaussian_linear_uniform_reference():
+    """Stage-1 (Slice-MCMC) of the GT pipeline against the shipped reference.
+
+    Stage 1 is the only stage we replaced — NUTS -> SliceSamplerVectorized.
+    Stages 2 (NSF) and 3 (rejection) are unchanged sbibm code; we exercise
+    them in test_gt_full_pipeline_smoke below.
+
+    Target: gaussian_linear_uniform (dim=10, BoxUniform prior, Gaussian
+    likelihood). Reference samples ship with the package. Uses uniform-prior
+    rather than gaussian_linear because the latter's identity bijection
+    triggers a latent typo bug in sbibm.utils.torch.get_log_abs_det_jacobian
+    (the helper hot-patches that bug, but we still want to exercise the
+    bounded-transform branch here).
+
+    Posterior is approximately N(y, 0.1 I) truncated to [-1,1]^10, so std ~ 0.32.
+    """
+    import sbibm
+
+    import numpy as np
+    import sbibm.utils.nflows  # noqa: F401  -- import for side effects (patch)
+    from sbi.samplers.mcmc.slice_numpy import SliceSamplerVectorized
+
+    from tabpfn_misspec import _gt_pipeline  # noqa: F401  -- applies bug patch
+
+    task = sbibm.get_task("gaussian_linear_uniform")
+    num_observation = 1
+    num_samples = 2_000
+    num_warmup = 500
+
+    torch_log_prob_fn = task._get_log_prob_fn(
+        num_observation=num_observation,
+        implementation="experimental",
+        posterior=True,
+    )
+
+    def np_log_prob_fn(params_np):
+        params = torch.as_tensor(np.atleast_2d(params_np), dtype=torch.float32)
+        with torch.no_grad():
+            log_p = torch_log_prob_fn(params)
+        out = log_p.detach().cpu().numpy().astype(np.float64).reshape(-1)
+        out[~np.isfinite(out)] = -np.inf
+        return out
+
+    init_np = task.get_true_parameters(num_observation=num_observation).numpy().reshape(
+        1, task.dim_parameters,
+    ).astype(np.float64)
+
+    sampler = SliceSamplerVectorized(
+        log_prob_fn=np_log_prob_fn,
+        init_params=init_np,
+        num_chains=1,
+        thin=1,
+        tuning=50,
+        verbose=False,
+        init_width=0.01,
+        num_workers=1,
+    )
+    chain = sampler.run(num_warmup + num_samples)[:, num_warmup:, :]
+    samples = torch.as_tensor(chain.reshape(-1, task.dim_parameters), dtype=torch.float32)
+
+    ref = task.get_reference_posterior_samples(num_observation=num_observation)[:num_samples]
+
+    assert samples.shape == (num_samples, task.dim_parameters)
+    assert torch.isfinite(samples).all()
+
+    diff_mean = (samples.mean(dim=0) - ref.mean(dim=0)).abs().max()
+    assert diff_mean < 0.1, f"slice-MCMC mean diff vs reference: {diff_mean:.3f}"
+
+    rel_cov = (
+        torch.linalg.norm(torch.cov(samples.T) - torch.cov(ref.T))
+        / torch.linalg.norm(torch.cov(ref.T))
+    )
+    assert rel_cov < 0.3, f"slice-MCMC cov rel-error vs reference: {rel_cov:.3f}"
+
+
+@pytest.mark.slow
+def test_gt_full_pipeline_smoke():
+    """Smoke test of all three stages (Slice + NSF + rejection) plumbed together.
+
+    Intentionally tiny num_samples: the rejection step's acceptance rate on
+    gaussian_linear_uniform's BoxUniform prior is structurally low (~1e-4),
+    so even 50 accepts is ~30s of stage-3 work after the ~80s slice + ~20s NSF.
+    Asserts only shape + finiteness — statistical agreement is covered by the
+    stage-1 test above.
+    """
+    import sbibm
+
+    from tabpfn_misspec._gt_pipeline import run_slice_nsf_rejection_pipeline
+
+    task = sbibm.get_task("gaussian_linear_uniform")
+    num_samples = 50
+
+    samples = run_slice_nsf_rejection_pipeline(
+        task=task,
+        num_samples=num_samples,
+        num_observation=1,
+        num_warmup=200,
+        num_chains=1,
+        tuning=30,
+        batch_size=2_000,
+        num_batches_without_new_max=10,
+    )
+
+    assert samples.shape == (num_samples, task.dim_parameters)
+    assert torch.isfinite(samples).all()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

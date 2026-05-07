@@ -17,3 +17,8 @@ reportAssignmentType = "none"
 [tool.ruff]
 line-length = 100
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: integration tests that may take minutes (NSF training, rejection sampling)",
+]
+
