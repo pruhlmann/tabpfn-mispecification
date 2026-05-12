@@ -18,4 +18,5 @@ def get_config():
     config.seeds = [42, 123]
     config.augment_M = 1
     config.batch_size = None
+    config.train_batch_size = 1024
     return config

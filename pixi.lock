@@ -7135,7 +7135,7 @@ packages:
 - pypi: ./
   name: tabpfn-misspec
   version: 0.1.0
-  sha256: 3dd21eb67aec64c36136272af150c2564b3deb6ca5a5e233ab12623d7fecfae7
+  sha256: 7d5c97b72ed68371007270f2094ccd7794eaee2ca95919409f898089c41090a4
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/99/55/db07de81b5c630da5cbf5c7df646580ca26dfaefa593667fc6f2fe016d2e/tabulate-0.10.0-py3-none-any.whl
   name: tabulate

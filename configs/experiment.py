@@ -17,4 +17,5 @@ def get_config():
     config.use_prior_transform = True
     config.seeds = [42, 123, 456, 789, 1024]
     config.augment_M = 1
+    config.train_batch_size = 1024
     return config

@@ -16,22 +16,51 @@ from scipy.stats import gaussian_kde
 #   other:     distinct individual colors
 
 METHOD_STYLE = {
-    # --- syn + cal (purple gradient) ---
-    "npepfn_y_fmpe_concat": dict(label="FMPE (syn. y + cal.)", color="#7B2D8E", marker="v", ls="-"),
+    # --- TabPFN in-context learning (no training); vary context ---
+    "npepfn_y_fmpe_concat": dict(
+        label=r"FMPE (flow match.) | train: synth. $\tilde y$ + calib.",
+        color="#7B2D8E", marker="v", ls="-",
+    ),
     "npepfn_y_npepfn_concat": dict(
-        label="NPE-PFN (syn. y + cal.)", color="#C77CFF", marker="h", ls="--"
+        label=r"TabPFN (in-context) | ctx: synth. $\tilde y$ + calib.",
+        color="#C77CFF", marker="h", ls="--",
     ),
-    # --- syn only (blue/teal gradient) ---
-    "npepfn_y_fmpe": dict(label="FMPE (syn. y)", color="#0B3D91", marker="v", ls="-"),
-    "npepfn_y_npepfn": dict(label="NPE-PFN (syn. y)", color="#4DA6FF", marker="h", ls="--"),
+    "npepfn_y_fmpe": dict(
+        label=r"FMPE (flow match.) | train: synth. $\tilde y$",
+        color="#0B3D91", marker="v", ls="-",
+    ),
+    "npepfn_y_npepfn": dict(
+        label=r"TabPFN (in-context) | ctx: synth. $\tilde y$",
+        color="#4DA6FF", marker="h", ls="--",
+    ),
     "npepfn_ythetaonly_npepfn": dict(
-        label=r"NPE-PFN (syn. y, $\theta$ only)", color="#99D6FF", marker="d", ls="-."
+        label=r"TabPFN (in-context) | ctx: synth. $\tilde y$ ($\theta$ from prior)",
+        color="#99D6FF", marker="d", ls="-.",
     ),
-    # --- other (distinct colors) ---
-    "npepfn_mixed": dict(label="NPE-PFN (mixed)", color="#228833", marker="o", ls="-"),
-    "npepfn_calib": dict(label="NPE-PFN (calib.)", color="#EE6677", marker="^", ls="-"),
-    "npepfn_misspec": dict(label="NPE-PFN (misspec.)", color="#CCBB44", marker="s", ls="--"),
-    "npe_sbi": dict(label="NPE (sbi)", color="#FF8C00", marker="D", ls="-"),
+    "npepfn_mixed": dict(
+        label=r"TabPFN (in-context) | ctx: misspec. sims + calib.",
+        color="#228833", marker="o", ls="-",
+    ),
+    "npepfn_calib": dict(
+        label=r"TabPFN (in-context) | ctx: calib. $(\theta, y)$",
+        color="#EE6677", marker="^", ls="-",
+    ),
+    "npepfn_misspec": dict(
+        label=r"TabPFN (in-context) | ctx: misspec. sims $(\theta, x)$",
+        color="#CCBB44", marker="s", ls="--",
+    ),
+    "npe_sbi": dict(
+        label=r"NPE (neural posterior est.) | train: calib. $(\theta, y)$",
+        color="#FF8C00", marker="D", ls="-",
+    ),
+    "mf_npe": dict(
+        label=r"MF-NPE (multi-fidelity NPE) | pretrain: sims $\to$ fine-tune: calib.",
+        color="#AA3377", marker="P", ls="-",
+    ),
+    "fmcpe": dict(
+        label=r"FMCPE (flow-match. corr. post.) | NPE proposal + $y\to x$ + $\theta$ transform",
+        color="#117733", marker="X", ls="-",
+    ),
 }
 
 # Plotting order: "ours" first, then baselines
@@ -44,6 +73,8 @@ METHOD_ORDER = [
     "npepfn_mixed",
     "npepfn_calib",
     "npe_sbi",
+    "mf_npe",
+    "fmcpe",
     "npepfn_misspec",
 ]
 
@@ -154,17 +185,20 @@ def _make_two_panel(lookup, sorted_n, observations, methods, obs_filter=None):
     _plot_metric(ax_c2st, lookup, sorted_n, observations, methods, "c2st", obs_filter=obs_filter)
     _plot_metric(ax_mmd, lookup, sorted_n, observations, methods, "mmd", obs_filter=obs_filter)
 
-    # Shared x-label
-    fig.text(0.5, -0.02, r"$n_{\mathrm{calib}}$", ha="center", fontsize=9)
+    # X-label on each axis (cleaner than shared fig.text with long legend below)
+    ax_c2st.set_xlabel(r"$n_{\mathrm{calib}}$")
+    ax_mmd.set_xlabel(r"$n_{\mathrm{calib}}$")
 
-    # Single shared legend below
+    # Single shared legend below, with enough gap to avoid overlapping x-labels.
+    # Long explicit labels => single column. bbox_inches='tight' on savefig will
+    # expand the figure box to include the legend.
     handles, labels = ax_c2st.get_legend_handles_labels()
-    ncol = min(3, len(methods))
     fig.legend(
-        handles, labels, loc="lower center", ncol=ncol, frameon=False, bbox_to_anchor=(0.5, -0.22)
+        handles, labels, loc="upper center", ncol=1, frameon=False,
+        bbox_to_anchor=(0.5, -0.05), borderaxespad=0.0,
     )
 
-    fig.subplots_adjust(wspace=0.35)
+    fig.subplots_adjust(wspace=0.35, bottom=0.20)
     return fig
 
 

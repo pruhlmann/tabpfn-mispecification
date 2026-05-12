@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=tabpfn-sweep
+#SBATCH --job-name=tabpfn-sweep-largecal
 #SBATCH --account=vxk@a100
 #SBATCH --constraint=a100
 #SBATCH --nodes=1
@@ -11,21 +11,23 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 
-# Run the calibration sweep for ONE sbibm task on a single A100.
+# Run the calibration sweep at the large-ncal point only (default 50000) for
+# ONE sbibm task on a single A100. Writes to a separate RESULTS dir so that
+# JSON files do not collide with the main sweep at <task>_<misspec>_sweep.json.
 #
 # Submit:
-#   sbatch slurm/sweep.slurm                  # default task (gaussian_linear)
-#   sbatch slurm/sweep.slurm two_moons        # override task
+#   sbatch slurm/sweep_largecal.slurm                  # default task (gaussian_linear)
+#   sbatch slurm/sweep_largecal.slurm two_moons        # override task
 #
-# Available tasks: any configs/<name>.py (gaussian_linear, two_moons,
-# gaussian_mixture, slcp, sir, lotka_volterra, gaussian_linear_hd,
-# gaussian_linear_hd_nonlinear, lotka_volterra_hd).
+# To merge with the main sweep results for plotting, copy/symlink the JSON
+# from results-largecal/ into results/ under a different name.
 
 set -euo pipefail
 
 TASK="${1:-gaussian_linear}"
 CONFIG="configs/${TASK}.py"
-RESULTS="${RESULTS:-$WORK/projects/tabpfn-mispecification/results}"
+RESULTS="${RESULTS:-$WORK/projects/tabpfn-mispecification/results-largecal}"
+CALIB_SIZES="${CALIB_SIZES:-50000}"
 export HF_HOME="$WORK/huggingface_cache"
 export TABPFN_MODEL_CACHE_DIR="$HF_HOME"
 export TABPFN_DISABLE_TELEMETRY=1
@@ -62,18 +64,19 @@ mkdir -p logs "$RESULTS"
 module purge
 
 echo "=========================================================="
-echo "Job:      $SLURM_JOB_ID  ($SLURM_JOB_NAME)"
-echo "Node:     $(hostname)"
-echo "GPUs:     ${CUDA_VISIBLE_DEVICES:-<none>}"
-echo "Task:     $TASK"
-echo "Config:   $CONFIG"
-echo "Results:  $RESULTS"
-echo "HF_HOME:  $HF_HOME"
+echo "Job:         $SLURM_JOB_ID  ($SLURM_JOB_NAME)"
+echo "Node:        $(hostname)"
+echo "GPUs:        ${CUDA_VISIBLE_DEVICES:-<none>}"
+echo "Task:        $TASK"
+echo "Config:      $CONFIG"
+echo "Results:     $RESULTS"
+echo "Calib sizes: $CALIB_SIZES"
+echo "HF_HOME:     $HF_HOME"
 echo "=========================================================="
 
-srun pixi run -e gpu sweep --config "$CONFIG" --output_dir "$RESULTS"
+srun pixi run -e gpu sweep --config "$CONFIG" --output_dir "$RESULTS" --calib_sizes "$CALIB_SIZES"
 
 echo
 echo "=========================================================="
-echo "Sweep for $TASK completed at $(date)"
+echo "Largecal sweep for $TASK completed at $(date)"
 echo "=========================================================="

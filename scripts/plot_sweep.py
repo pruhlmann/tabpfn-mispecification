@@ -4,6 +4,11 @@ import json
 import re
 from pathlib import Path
 
+# Load matplotlib before torch: torch's bundled libs pull in the system
+# libstdc++.so.6 (CXXABI 1.3.13), which then masks the conda env's newer
+# libstdc++ that matplotlib's C extension requires (CXXABI 1.3.15).
+import matplotlib  # noqa: F401
+
 import torch
 from absl import app, flags
 

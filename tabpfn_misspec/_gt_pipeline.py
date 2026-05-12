@@ -6,6 +6,7 @@ sampling) but uses sbi's vectorized slice sampler from
 ``Slice`` kernel lived under ``sbi.mcmc.slice``, which was removed in sbi>=0.20.
 """
 
+import time
 from typing import Any, Optional
 
 import numpy as np
@@ -68,6 +69,13 @@ def run_slice_nsf_rejection_pipeline(
     """
     assert (num_observation is None) ^ (observation is None)
 
+    print(
+        f"[gt-pipeline] task={task.name} num_obs={num_observation} "
+        f"num_samples={num_samples} num_warmup={num_warmup} "
+        f"num_chains={num_chains} batch_size={batch_size}",
+        flush=True,
+    )
+
     torch_log_prob_fn = task._get_log_prob_fn(
         num_observation=num_observation,
         observation=observation,
@@ -75,12 +83,32 @@ def run_slice_nsf_rejection_pipeline(
         posterior=True,
     )
 
+    n_calls = [0]
+    n_failures = [0]
+    heartbeat_every = 1000
+    next_heartbeat = [heartbeat_every]
+
     def np_log_prob_fn(params_np: np.ndarray) -> np.ndarray:
-        params = torch.as_tensor(np.atleast_2d(params_np), dtype=torch.float32)
+        arr = np.atleast_2d(params_np)
+        n_calls[0] += arr.shape[0]
+        params = torch.as_tensor(arr, dtype=torch.float32)
         with torch.no_grad():
             log_p = torch_log_prob_fn(params)
         out = log_p.detach().cpu().numpy().astype(np.float64).reshape(-1)
-        out[~np.isfinite(out)] = -np.inf
+        bad = ~np.isfinite(out)
+        n_failures[0] += int(bad.sum())
+        out[bad] = -np.inf
+        if n_calls[0] >= next_heartbeat[0]:
+            elapsed = time.time() - t0
+            ms_per = 1000.0 * elapsed / n_calls[0]
+            fail_pct = 100.0 * n_failures[0] / n_calls[0]
+            print(
+                f"[gt-pipeline] log_prob heartbeat: calls={n_calls[0]} "
+                f"elapsed={elapsed:.1f}s ms/call={ms_per:.1f} "
+                f"failures={n_failures[0]} ({fail_pct:.1f}%)",
+                flush=True,
+            )
+            next_heartbeat[0] += heartbeat_every
         return out
 
     if num_observation is not None:
@@ -92,6 +120,8 @@ def run_slice_nsf_rejection_pipeline(
         num_chains, task.dim_parameters,
     )
 
+    print("[gt-pipeline] stage 1: slice MCMC starting...", flush=True)
+    t0 = time.time()
     sampler = SliceSamplerVectorized(
         log_prob_fn=np_log_prob_fn,
         init_params=init_np,
@@ -104,10 +134,23 @@ def run_slice_nsf_rejection_pipeline(
     )
     chain = sampler.run(num_warmup + num_samples)  # (num_chains, n, dim)
     chain = chain[:, num_warmup:, :]
+    t1 = time.time()
+    print(
+        f"[gt-pipeline] stage 1 done in {t1 - t0:.1f}s | "
+        f"log_prob calls={n_calls[0]} | -inf returns={n_failures[0]} "
+        f"({100 * n_failures[0] / max(n_calls[0], 1):.1f}%)",
+        flush=True,
+    )
+
     proposal_samples = torch.as_tensor(
         chain.reshape(-1, task.dim_parameters), dtype=torch.float32,
     )
 
+    print(
+        f"[gt-pipeline] stage 2: NSF fit on {proposal_samples.shape[0]} "
+        "samples starting...",
+        flush=True,
+    )
     proposal_dist = get_proposal(
         task=task,
         samples=proposal_samples,
@@ -116,8 +159,16 @@ def run_slice_nsf_rejection_pipeline(
         density_estimator="flow",
         flow_model=flow_model,
     )
+    t2 = time.time()
+    print(f"[gt-pipeline] stage 2 done in {t2 - t1:.1f}s", flush=True)
 
-    return run_rejection(
+    print(
+        f"[gt-pipeline] stage 3: rejection sampling starting "
+        f"(batch_size={batch_size}, "
+        f"num_batches_without_new_max={num_batches_without_new_max})...",
+        flush=True,
+    )
+    samples = run_rejection(
         task=task,
         num_observation=num_observation,
         observation=observation,
@@ -127,3 +178,10 @@ def run_slice_nsf_rejection_pipeline(
         multiplier_M=multiplier_M,
         proposal_dist=proposal_dist,
     )
+    t3 = time.time()
+    print(
+        f"[gt-pipeline] stage 3 done in {t3 - t2:.1f}s | "
+        f"total {t3 - t0:.1f}s | output shape={tuple(samples.shape)}",
+        flush=True,
+    )
+    return samples

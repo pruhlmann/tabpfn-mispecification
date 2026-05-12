@@ -12,6 +12,12 @@ _CONFIG = config_flags.DEFINE_config_file(
     "config", "configs/experiment.py", "Path to experiment config."
 )
 _OUTPUT_DIR = flags.DEFINE_string("output_dir", "results", "Output directory.")
+_CALIB_SIZES = flags.DEFINE_list(
+    "calib_sizes",
+    None,
+    "Comma-separated list of calibration sizes (e.g. '10,50,200,1000'). "
+    "Default None uses [10, 50, 200, 1000].",
+)
 
 
 def main(_):
@@ -19,7 +25,11 @@ def main(_):
     out_dir = Path(_OUTPUT_DIR.value)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    calib_sizes = [10, 50, 200, 1000]
+    calib_sizes = (
+        [int(n) for n in _CALIB_SIZES.value]
+        if _CALIB_SIZES.value is not None
+        else [10, 50, 200, 1000]
+    )
     seeds = list(getattr(cfg, "seeds", [cfg.seed]))
     all_results = {}
 
@@ -53,6 +63,7 @@ def main(_):
                 use_cache=cfg.get("use_cache", True),
                 augment_M=cfg.get("augment_M", 1),
                 metrics_to_compute=list(cfg.get("metrics_to_compute", ("c2st", "mmd"))),
+                train_batch_size=cfg.get("train_batch_size", 1024),
             )
             for r in results:
                 r.seed = seed

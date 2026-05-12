@@ -20,4 +20,5 @@ def get_config():
     config.augment_M = 1
     config.batch_size = 1500
     config.cache_data = True
+    config.train_batch_size = 1024
     return config

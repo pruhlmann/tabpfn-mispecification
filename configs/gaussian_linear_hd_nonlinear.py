@@ -1,9 +1,4 @@
-"""Task-specific config for the high-dim Gaussian linear custom task.
-
-dim_theta = 25, dim_y = dim_x = 8.  Misspecification: x = A theta + b + eps_x
-with A != C (different random matrices), so x is a linearly mismatched view of
-theta. Reference posterior is closed-form (Bayesian linear regression).
-"""
+"""Gaussian linear HD with quadratic-in-theta misspec (alpha controls strength)."""
 
 import ml_collections
 
@@ -11,8 +6,8 @@ import ml_collections
 def get_config():
     config = ml_collections.ConfigDict()
     config.task = "gaussian_linear_hd"
-    config.misspec_type = "linear_misspec"
-    config.misspec_kwargs = {"sigma_x": 0.5}
+    config.misspec_type = "nonlinear_theta"
+    config.misspec_kwargs = {"sigma_x": 0.5, "alpha": 0.1}
     config.num_sim_mixed = 5000
     config.num_posterior_samples = 5000
     config.num_observations = 1

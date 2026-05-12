@@ -21,4 +21,5 @@ def get_config():
     config.batch_size = 2000
     config.metrics_to_compute = ("c2st", "mmd")
     config.cache_data = True
+    config.train_batch_size = 1024
     return config

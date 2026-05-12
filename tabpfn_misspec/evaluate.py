@@ -258,6 +258,7 @@ def evaluate_calibrated_misspecification(
     use_cache=True,
     augment_M=1,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
+    train_batch_size=1024,
 ) -> List[EvalResult]:
     """Run calibrated misspecification evaluation comparing multiple methods.
 
@@ -293,6 +294,8 @@ def evaluate_calibrated_misspecification(
         List of EvalResult with method field set per method.
     """
     from tabpfn_misspec.baselines import (
+        evaluate_fmcpe,
+        evaluate_mf_npe,
         evaluate_npe_sbi,
         evaluate_npepfn_calib_only,
         evaluate_npepfn_y_fmpe,
@@ -327,6 +330,8 @@ def evaluate_calibrated_misspecification(
         "npepfn_calib",
         "npepfn_mixed",
         "npe_sbi",
+        "mf_npe",
+        "fmcpe",
         "npepfn_y_fmpe",
         "npepfn_y_npepfn",
         "npepfn_y_fmpe_concat",
@@ -721,10 +726,69 @@ def evaluate_calibrated_misspecification(
                     seed=seed,
                     artifacts_dir=artifacts_dir,
                     metrics_to_compute=metrics_to_compute,
+                    training_batch_size=train_batch_size,
                 )
             )
         except (ValueError, RuntimeError) as e:
             all_results.extend(_nan_results("npe_sbi", e))
+
+    # --- MF-NPE (sim-pretrain + calib-finetune) ---
+    cached = _try_cached_or_skip("mf_npe")
+    if cached is not None:
+        all_results.extend(cached)
+    else:
+        _next_step("mf_npe")
+        try:
+            all_results.extend(
+                evaluate_mf_npe(
+                    task,
+                    prior,
+                    theta_sim[:num_context],
+                    x_sim[:num_context],
+                    theta_calib,
+                    y_calib,
+                    num_posterior_samples,
+                    num_observations,
+                    task_name,
+                    misspec_type,
+                    misspec_kwargs,
+                    seed=seed,
+                    artifacts_dir=artifacts_dir,
+                    metrics_to_compute=metrics_to_compute,
+                    training_batch_size=train_batch_size,
+                )
+            )
+        except (ValueError, RuntimeError) as e:
+            all_results.extend(_nan_results("mf_npe", e))
+
+    # --- FMCPE (NPE proposal + flow_x denoiser + flow_theta post-transform) ---
+    cached = _try_cached_or_skip("fmcpe")
+    if cached is not None:
+        all_results.extend(cached)
+    else:
+        _next_step("fmcpe")
+        try:
+            all_results.extend(
+                evaluate_fmcpe(
+                    task,
+                    prior,
+                    theta_sim[:num_context],
+                    x_sim[:num_context],
+                    theta_calib,
+                    x_calib,
+                    y_calib,
+                    num_posterior_samples,
+                    num_observations,
+                    task_name,
+                    misspec_type,
+                    misspec_kwargs,
+                    seed=seed,
+                    artifacts_dir=artifacts_dir,
+                    metrics_to_compute=metrics_to_compute,
+                )
+            )
+        except (ValueError, RuntimeError) as e:
+            all_results.extend(_nan_results("fmcpe", e))
 
     # --- Method 5: TabPFN y-corrector + FMPE --- syn only, num_context pairs
     cached = _try_cached_or_skip("npepfn_y_fmpe")
@@ -749,6 +813,7 @@ def evaluate_calibrated_misspecification(
                     seed=seed,
                     artifacts_dir=artifacts_dir,
                     metrics_to_compute=metrics_to_compute,
+                    training_batch_size=train_batch_size,
                 )
             )
         except (ValueError, RuntimeError) as e:
@@ -810,6 +875,7 @@ def evaluate_calibrated_misspecification(
                     artifacts_dir=artifacts_dir,
                     concat_calib=True,
                     metrics_to_compute=metrics_to_compute,
+                    training_batch_size=train_batch_size,
                 )
             )
         except (ValueError, RuntimeError) as e:
