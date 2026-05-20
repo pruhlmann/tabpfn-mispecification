@@ -16,49 +16,51 @@ from scipy.stats import gaussian_kde
 #   other:     distinct individual colors
 
 METHOD_STYLE = {
-    # --- TabPFN in-context learning (no training); vary context ---
+    # --- Synthetic-y methods: TabPFN generates y, then run inference on it ---
     "npepfn_y_fmpe_concat": dict(
-        label=r"FMPE (flow match.) | train: synth. $\tilde y$ + calib.",
+        label=r"$\tilde y \sim \mathrm{TabPFN}(\cdot \mid \theta_{\mathrm{sim}}, x_{\mathrm{sim}})$;  FMPE on $\tilde y \cup$ calib",
         color="#7B2D8E", marker="v", ls="-",
     ),
     "npepfn_y_npepfn_concat": dict(
-        label=r"TabPFN (in-context) | ctx: synth. $\tilde y$ + calib.",
+        label=r"$\tilde y \sim \mathrm{TabPFN}(\cdot \mid \theta_{\mathrm{sim}}, x_{\mathrm{sim}})$;  $\theta \sim \mathrm{TabPFN}(\cdot \mid y_{\mathrm{obs}}, D_{\mathrm{cal}})$,  $D_{\mathrm{cal}} = (\theta_{\mathrm{sim}}, \tilde y) \cup (\theta_{\mathrm{cal}}, y_{\mathrm{cal}})$",
         color="#C77CFF", marker="h", ls="--",
     ),
     "npepfn_y_fmpe": dict(
-        label=r"FMPE (flow match.) | train: synth. $\tilde y$",
+        label=r"$\tilde y \sim \mathrm{TabPFN}(\cdot \mid \theta_{\mathrm{sim}}, x_{\mathrm{sim}})$;  FMPE on $\tilde y$",
         color="#0B3D91", marker="v", ls="-",
     ),
     "npepfn_y_npepfn": dict(
-        label=r"TabPFN (in-context) | ctx: synth. $\tilde y$",
+        label=r"$\tilde y \sim \mathrm{TabPFN}(\cdot \mid \theta_{\mathrm{sim}}, x_{\mathrm{sim}})$;  $\theta \sim \mathrm{TabPFN}(\cdot \mid y_{\mathrm{obs}}, D_{\mathrm{cal}})$,  $D_{\mathrm{cal}} = (\theta_{\mathrm{sim}}, \tilde y)$",
         color="#4DA6FF", marker="h", ls="--",
     ),
     "npepfn_ythetaonly_npepfn": dict(
-        label=r"TabPFN (in-context) | ctx: synth. $\tilde y$ ($\theta$ from prior)",
+        label=r"$\tilde y \sim \mathrm{TabPFN}(\cdot \mid \theta_{\mathrm{prior}})$;  $\theta \sim \mathrm{TabPFN}(\cdot \mid y_{\mathrm{obs}}, D_{\mathrm{cal}})$,  $D_{\mathrm{cal}} = (\theta_{\mathrm{prior}}, \tilde y)$",
         color="#99D6FF", marker="d", ls="-.",
     ),
+    # --- TabPFN in-context inference on real data (no synth y) ---
     "npepfn_mixed": dict(
-        label=r"TabPFN (in-context) | ctx: misspec. sims + calib.",
+        label=r"$\theta \sim \mathrm{TabPFN}(\cdot \mid y_{\mathrm{obs}}, D_{\mathrm{cal}})$,  $D_{\mathrm{cal}} = (\theta_{\mathrm{sim}}, x_{\mathrm{sim}}) \cup (\theta_{\mathrm{cal}}, y_{\mathrm{cal}})$",
         color="#228833", marker="o", ls="-",
     ),
     "npepfn_calib": dict(
-        label=r"TabPFN (in-context) | ctx: calib. $(\theta, y)$",
+        label=r"$\theta \sim \mathrm{TabPFN}(\cdot \mid y_{\mathrm{obs}}, D_{\mathrm{cal}})$,  $D_{\mathrm{cal}} = (\theta_{\mathrm{cal}}, y_{\mathrm{cal}})$",
         color="#EE6677", marker="^", ls="-",
     ),
     "npepfn_misspec": dict(
-        label=r"TabPFN (in-context) | ctx: misspec. sims $(\theta, x)$",
+        label=r"$\theta \sim \mathrm{TabPFN}(\cdot \mid y_{\mathrm{obs}}, D_{\mathrm{cal}})$,  $D_{\mathrm{cal}} = (\theta_{\mathrm{sim}}, x_{\mathrm{sim}})$",
         color="#CCBB44", marker="s", ls="--",
     ),
+    # --- Trained density estimators ---
     "npe_sbi": dict(
-        label=r"NPE (neural posterior est.) | train: calib. $(\theta, y)$",
+        label=r"NPE trained on calib $(\theta, y)$",
         color="#FF8C00", marker="D", ls="-",
     ),
     "mf_npe": dict(
-        label=r"MF-NPE (multi-fidelity NPE) | pretrain: sims $\to$ fine-tune: calib.",
+        label=r"NPE pretrained on misspec. sims $\to$ fine-tuned on calib",
         color="#AA3377", marker="P", ls="-",
     ),
     "fmcpe": dict(
-        label=r"FMCPE (flow-match. corr. post.) | NPE proposal + $y\to x$ + $\theta$ transform",
+        label=r"FMCPE:  NPE proposal $+\; y \to x \;+\; \theta$ transform",
         color="#117733", marker="X", ls="-",
     ),
 }
