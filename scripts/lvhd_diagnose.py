@@ -50,24 +50,29 @@ def main() -> None:
 
     benchmark_raw_de(task, n_warmup=2, n_iter=100)
 
-    t0 = time.time()
-    samples = run_slice_nsf_rejection_pipeline(
-        task=task,
-        num_samples=10,
-        num_observation=1,
-        num_warmup=10,
-        num_chains=1,
-        tuning=5,
-        batch_size=200,
-        num_batches_without_new_max=5,
-    )
-    t1 = time.time()
-    print(
-        f"[diagnose] full pipeline: {t1 - t0:.1f}s, "
-        f"samples shape={tuple(samples.shape)}, "
-        f"finite={samples.isfinite().all().item()}",
-        flush=True,
-    )
+    for num_chains in (1, 8):
+        print(
+            f"\n[diagnose] === slice stage with num_chains={num_chains} ===",
+            flush=True,
+        )
+        t0 = time.time()
+        samples = run_slice_nsf_rejection_pipeline(
+            task=task,
+            num_samples=10,
+            num_observation=1,
+            num_warmup=10,
+            num_chains=num_chains,
+            tuning=5,
+            batch_size=200,
+            num_batches_without_new_max=5,
+        )
+        t1 = time.time()
+        print(
+            f"[diagnose] num_chains={num_chains}: {t1 - t0:.1f}s, "
+            f"samples shape={tuple(samples.shape)}, "
+            f"finite={samples.isfinite().all().item()}",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

@@ -113,6 +113,11 @@ class LotkaVolterraHD(Task):
         return prior
 
     def get_simulator(self, max_calls=None):
+        # GC counter is per-simulator (not per-call), so GC fires every 100
+        # ODE solves across calls. Without this, slice-MCMC with batch size 1
+        # forces a Python+Julia GC on every single log_prob evaluation.
+        n_solves = [0]
+
         def simulator(parameters):
             num_samples = parameters.shape[0]
             p_full = _theta_to_p(parameters)
@@ -124,23 +129,29 @@ class LotkaVolterraHD(Task):
                     u = float("nan") * torch.ones(
                         (5, int(self.dim_data_raw / 5))
                     ).double()
-                if n % 100 == 0:
+                n_solves[0] += 1
+                if n_solves[0] % 100 == 0:
                     gc.collect()
                     self.de.jl.eval("Base.GC.gc()")
                 us.append(u.reshape(1, 5, -1))
             us = torch.cat(us).float()
             us = us[:, :, ::21].reshape(num_samples, -1)
 
-            data = float("nan") * torch.ones((num_samples, self.dim_data))
-            ok = ~torch.isnan(us).any(dim=1)
-            if ok.any():
-                data[ok] = pyro.sample(
-                    "data",
-                    pdist.LogNormal(
-                        loc=torch.log(us[ok].clamp(1e-10, 1e4)),
-                        scale=0.1,
-                    ).to_event(1),
-                )
+            # Full-batch "data" site (one row per parameter, no masking) so the
+            # experimental log-prob -- which sums site log-probs across the
+            # parameter batch -- broadcasts even when some chains hit unstable
+            # ODEs. Failed rows carry NaN in `us`, hence NaN loc -> NaN log_prob
+            # and NaN samples (forward behaviour unchanged); validate_args=False
+            # lets LogNormal build with NaN loc, and the slice wrapper maps the
+            # resulting NaN log_prob to -inf.
+            data = pyro.sample(
+                "data",
+                pdist.LogNormal(
+                    loc=torch.log(us.clamp(1e-10, 1e4)),
+                    scale=0.1,
+                    validate_args=False,
+                ).to_event(1),
+            )
             return data
 
         return Simulator(task=self, simulator=simulator, max_calls=max_calls)

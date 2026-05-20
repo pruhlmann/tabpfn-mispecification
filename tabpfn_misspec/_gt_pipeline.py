@@ -51,6 +51,7 @@ def run_slice_nsf_rejection_pipeline(
     observation: Optional[torch.Tensor] = None,
     num_warmup: int = 2_000,
     num_chains: int = 1,
+    slice_samples_per_chain: Optional[int] = None,
     tuning: int = 100,
     init_width: float = 0.01,
     prior_weight: float = 0.1,
@@ -69,10 +70,18 @@ def run_slice_nsf_rejection_pipeline(
     """
     assert (num_observation is None) ^ (observation is None)
 
+    # Slice budget per chain: keep total slice samples (= num_chains *
+    # slice_samples_per_chain) roughly fixed when bumping num_chains, otherwise
+    # K chains do K times more slice work for no gain.
+    if slice_samples_per_chain is None:
+        slice_samples_per_chain = num_samples
+
     print(
         f"[gt-pipeline] task={task.name} num_obs={num_observation} "
         f"num_samples={num_samples} num_warmup={num_warmup} "
-        f"num_chains={num_chains} batch_size={batch_size}",
+        f"num_chains={num_chains} "
+        f"slice_samples_per_chain={slice_samples_per_chain} "
+        f"batch_size={batch_size}",
         flush=True,
     )
 
@@ -132,7 +141,7 @@ def run_slice_nsf_rejection_pipeline(
         init_width=init_width,
         num_workers=1,
     )
-    chain = sampler.run(num_warmup + num_samples)  # (num_chains, n, dim)
+    chain = sampler.run(num_warmup + slice_samples_per_chain)  # (num_chains, n, dim)
     chain = chain[:, num_warmup:, :]
     t1 = time.time()
     print(
