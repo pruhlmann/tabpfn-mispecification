@@ -451,6 +451,33 @@ def _nonlinear_theta(task_name, sigma_x=0.5, alpha=0.1):
     return misspecified_simulator
 
 
+def _ellipse_modes(task_name, axis_ratio=0.5, sigma_x=None):
+    """Misspecified Gaussian-mixture simulator: modes on an ELLIPSE.
+
+    Same model as the well-specified mixture (x = theta + c_z + eps_x) but the
+    anchors c_k lie on an ellipse with semi-axes (rho, rho*axis_ratio) instead
+    of a circle of radius rho. axis_ratio == 1.0 recovers the circle.
+    """
+    if task_name not in ("gaussian_mixture_hd", "gaussian_mixture_2d"):
+        raise ValueError(
+            f"_ellipse_modes is only defined for the gaussian_mixture tasks, got '{task_name}'"
+        )
+    task = get_task(task_name)
+    D, n_modes, rho, phis = task.dim_x, task.n_modes, task.rho, task.phis
+    sigma_x = task.sigma if sigma_x is None else sigma_x
+
+    anchors = torch.zeros(n_modes, D)
+    anchors[:, 0] = rho * torch.cos(phis)
+    anchors[:, 1] = (rho * axis_ratio) * torch.sin(phis)
+
+    def misspecified_simulator(theta):
+        num_samples = theta.shape[0]
+        z = torch.randint(0, n_modes, (num_samples,))
+        return theta + anchors[z] + sigma_x * torch.randn(num_samples, D)
+
+    return misspecified_simulator
+
+
 _REGISTRY = {
     # Generic (any task)
     "additive_noise": _additive_noise,
@@ -466,6 +493,8 @@ _REGISTRY = {
     ("lotka_volterra", "carrying_capacity"): _carrying_capacity,
     ("gaussian_linear_hd", "linear_misspec"): _linear_misspec,
     ("gaussian_linear_hd", "nonlinear_theta"): _nonlinear_theta,
+    ("gaussian_mixture_hd", "ellipse_modes"): _ellipse_modes,
+    ("gaussian_mixture_2d", "ellipse_modes"): _ellipse_modes,
     ("lotka_volterra_hd", "wrong_noise_scale"): _wrong_noise_scale,
 }
 

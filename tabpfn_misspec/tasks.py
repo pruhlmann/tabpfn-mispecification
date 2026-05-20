@@ -113,7 +113,113 @@ class GaussianLinearHD:
         return self._ref_samples[obs_idx]
 
 
+class GaussianMixtureHD:
+    """High-dim Gaussian-mixture task with closed-form 8-mode posterior.
+
+    Prior:       theta ~ N(0, sigma_p^2 I_D)
+    Likelihood:  p(x|theta) = (1/n_modes) sum_k N(x; theta + c_k, sigma^2 I_D)
+                 with anchors c_k on a circle of radius rho in dims (0, 1).
+    Posterior:   n_modes-component Gaussian mixture (conjugate, closed-form),
+                 i.e. eight gaussians on a circle in the (theta_0, theta_1)
+                 plane. Shared cov tau^2 I, means mu_k = (tau^2/sigma^2)(x - c_k),
+                 weights w_k ∝ exp(-||x - c_k||^2 / (2(sigma_p^2 + sigma^2))).
+
+    With the observation at the symmetric point x = 0, all ||c_k|| = rho are
+    equal, so the posterior is n_modes equal-weight blobs on a circle.
+
+    Misspecification (see simulators._ellipse_modes): anchors placed on an
+    ellipse instead of a circle.
+    """
+
+    name = "gaussian_mixture_hd"
+
+    def __init__(
+        self,
+        dim_theta=20,
+        n_modes=8,
+        rho=8.0,
+        sigma=0.5,
+        sigma_p=5.0,
+        num_observations=1,
+        num_posterior_samples=10000,
+        obs_seed=1,
+        name=None,
+    ):
+        if name is not None:
+            self.name = name
+        self.dim_parameters = dim_theta
+        self.dim_data = dim_theta  # identity map: x lives in theta-space
+        self.dim_x = dim_theta  # used by the misspec factory
+        self.n_modes = n_modes
+        self.rho = rho
+        self.sigma = sigma
+        self.sigma_p = sigma_p
+        self.num_observations = num_observations
+        self.num_posterior_samples = num_posterior_samples
+
+        # Circle anchors c_k in dims (0, 1).
+        self.phis = 2 * torch.pi * torch.arange(n_modes) / n_modes
+        self.anchors = torch.zeros(n_modes, dim_theta)
+        self.anchors[:, 0] = rho * torch.cos(self.phis)
+        self.anchors[:, 1] = rho * torch.sin(self.phis)
+
+        tau2 = sigma_p ** 2 * sigma ** 2 / (sigma_p ** 2 + sigma ** 2)
+        self._tau = tau2 ** 0.5
+
+        # obs 1 = origin (symmetric, n_modes equal-weight modes); k>1 = jitter.
+        g_obs = torch.Generator().manual_seed(obs_seed)
+        self._x_obs = {}
+        self._ref_samples = {}
+        for k in range(1, num_observations + 1):
+            if k == 1:
+                x = torch.zeros(dim_theta)
+            else:
+                x = 0.5 * torch.randn(dim_theta, generator=g_obs)
+            self._x_obs[k] = x.unsqueeze(0)
+            self._ref_samples[k] = self._posterior_samples(
+                x, num_posterior_samples, seed=obs_seed + 7 + k
+            )
+
+    def _posterior_samples(self, x, n, seed):
+        tau2 = self._tau ** 2
+        means = (tau2 / self.sigma ** 2) * (x - self.anchors)  # (n_modes, D)
+        logw = -((x - self.anchors) ** 2).sum(1) / (
+            2 * (self.sigma_p ** 2 + self.sigma ** 2)
+        )
+        w = torch.softmax(logw, dim=0)
+        g = torch.Generator().manual_seed(seed)
+        comp = torch.multinomial(w, n, replacement=True, generator=g)
+        z = torch.randn(n, self.dim_parameters, generator=g)
+        return means[comp] + self._tau * z
+
+    def get_prior_dist(self):
+        loc = torch.zeros(self.dim_parameters)
+        scale = self.sigma_p * torch.ones(self.dim_parameters)
+        return Independent(Normal(loc, scale), 1)
+
+    def get_simulator(self):
+        anchors, sigma = self.anchors, self.sigma
+        dim_data, n_modes = self.dim_data, self.n_modes
+
+        def simulator(theta):
+            num_samples = theta.shape[0]
+            z = torch.randint(0, n_modes, (num_samples,))
+            return theta + anchors[z] + sigma * torch.randn(num_samples, dim_data)
+
+        return simulator
+
+    def get_observation(self, obs_idx):
+        return self._x_obs[obs_idx]
+
+    def get_reference_posterior_samples(self, obs_idx):
+        return self._ref_samples[obs_idx]
+
+
 _CUSTOM_TASKS = {
     "gaussian_linear_hd": GaussianLinearHD,
+    "gaussian_mixture_hd": GaussianMixtureHD,
+    "gaussian_mixture_2d": lambda: GaussianMixtureHD(
+        dim_theta=2, name="gaussian_mixture_2d"
+    ),
     "lotka_volterra_hd": LotkaVolterraHD,
 }
