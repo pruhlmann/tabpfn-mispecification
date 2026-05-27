@@ -1,6 +1,10 @@
 # CLAUDE.md
 
-**Cluster:** Jean Zay (SLURM). Submit long-running jobs via `sbatch slurm/sweep.slurm <task>` (or analogous batch scripts); use `srun --pty` for short interactive checks. Do not run training directly on the login node. This supersedes any global "use oarsub on edgar" rule for this repo.
+**Setup detection.** First check the environment before launching anything:
+- **Cluster (Jean Zay SLURM):** if `sbatch`/`srun` are available, submit long-running jobs via `sbatch slurm/sweep.slurm <task>`; use `srun --pty` for short interactive checks. Do not run training directly on the login node.
+- **Local (laptop / dev workstation, no SLURM):** run everything through `pixi run -e gpu ...` (or `pixi run -e default` for CPU). Default to CPU and **only run very small smoke configs** locally — tiny `num_simulations`, `num_calib_sizes=[50]`, `num_sbc=10–20`, `num_sbc_samples<=200`, `num_epochs<=5`. Anything heavier is for the cluster.
+
+This supersedes any global "use oarsub on edgar" rule for this repo.
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 

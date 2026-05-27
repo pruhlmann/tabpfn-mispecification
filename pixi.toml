@@ -36,8 +36,6 @@ default = { features = ["cpu"], solve-group = "cpu" }
 gpu = { features = ["gpu"], solve-group = "gpu" }
 
 [tasks]
-experiment = "python scripts/run_experiment.py"
-experiment-debug = "python scripts/run_experiment.py --config configs/debug.py"
 sweep = "python scripts/run_calibration_sweep.py"
 sweep-debug = "python scripts/run_calibration_sweep.py --config configs/debug.py"
 smoke = "python scripts/smoke_test.py"
