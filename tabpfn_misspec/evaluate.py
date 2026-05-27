@@ -9,6 +9,7 @@ from typing import List
 import torch
 
 from npe_pfn import TabPFN_Based_NPE_PFN
+from tabpfn_misspec.diagnostics import run_method_diagnostics
 from tabpfn_misspec.metrics import c2st, mmd
 from tabpfn_misspec.simulators import get_misspecified_simulator, suppress_julia_output
 from tabpfn_misspec.tasks import get_task
@@ -157,6 +158,9 @@ class EvalResult:
     c2st: float
     mmd: float
     log_prob: float = float("nan")
+    gt_log_prob: float = float("nan")
+    sbc_ks: float = float("nan")
+    tarp_ece: float = float("nan")
     method: str = "npepfn_misspec"
     seed: int = 42
 
@@ -209,6 +213,8 @@ def _load_cached_results(
                 c2st=cached_metrics.get("c2st", float("nan")),
                 mmd=cached_metrics.get("mmd", float("nan")),
                 log_prob=cached_metrics.get("log_prob", float("nan")),
+                sbc_ks=cached_metrics.get("sbc_ks", float("nan")),
+                tarp_ece=cached_metrics.get("tarp_ece", float("nan")),
                 method=method,
             )
             results.append(result)
@@ -259,6 +265,8 @@ def evaluate_calibrated_misspecification(
     augment_M=1,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
     train_batch_size=1024,
+    num_sbc=0,
+    num_sbc_samples=1000,
 ) -> List[EvalResult]:
     """Run calibrated misspecification evaluation comparing multiple methods.
 
@@ -350,6 +358,21 @@ def evaluate_calibrated_misspecification(
     torch.manual_seed(seed)
 
     task = get_task(task_name)
+
+    # Persist reference posteriors up front so downstream plotting (pairplots)
+    # works regardless of which methods run or whether their metrics are cached.
+    if artifacts_dir is not None:
+        for obs_idx in range(1, num_observations + 1):
+            ref_path = artifacts_dir / f"reference_seed{seed}_obs{obs_idx}.pt"
+            if not ref_path.exists():
+                _save_posterior(
+                    artifacts_dir,
+                    "reference",
+                    obs_idx,
+                    seed,
+                    task.get_reference_posterior_samples(obs_idx),
+                )
+
     prior = task.get_prior_dist()
     _raw_true_simulator = task.get_simulator()
     misspec_simulator = get_misspecified_simulator(task_name, misspec_type, **misspec_kwargs)
@@ -373,6 +396,26 @@ def evaluate_calibrated_misspecification(
             prior,
             lambda z: torch.zeros(z.shape[0]),
         )
+
+    # --- Shared SBC/coverage test set (true DGP: theta ~ prior, x ~ true_simulator) ---
+    # Generated once and shared across methods; gated on num_sbc > 0 (opt-in).
+    compute_sbc = num_sbc > 0
+    theta_sbc = x_sbc = None
+    if compute_sbc:
+        sbc_cache = artifacts_dir / f"sbc_testset_seed{seed}.pt" if artifacts_dir else None
+        if use_cache and sbc_cache is not None and sbc_cache.exists():
+            cached_sbc = torch.load(sbc_cache, weights_only=True)
+            theta_sbc, x_sbc = cached_sbc["theta_sbc"], cached_sbc["x_sbc"]
+            _info(f"Loaded cached SBC test set (N={theta_sbc.shape[0]})")
+        else:
+            torch.manual_seed(seed + 4242)
+            theta_sbc = prior.sample((num_sbc,))
+            x_sbc = true_simulator(theta_sbc)
+            torch.manual_seed(seed)  # restore main stream for downstream sampling
+            if sbc_cache is not None:
+                artifacts_dir.mkdir(parents=True, exist_ok=True)
+                torch.save({"theta_sbc": theta_sbc, "x_sbc": x_sbc}, sbc_cache)
+            _info(f"Generated SBC test set (N={num_sbc}, true simulator)")
 
     # Number of simulation pairs: enough for both npepfn_mixed and npepfn_misspec
     n_sim_generate = max(num_sim_mixed, num_context)
@@ -551,6 +594,16 @@ def evaluate_calibrated_misspecification(
         _next_step("npepfn_misspec")
         estimator_misspec = TabPFN_Based_NPE_PFN(prior=est_prior)
         estimator_misspec.append_simulations(theta_sim_t[:num_context], x_sim[:num_context])
+        diag = {}
+        if compute_sbc:
+            def _draw_misspec(xs, L):
+                return inverse(
+                    estimator_misspec.sample_batched(x=xs, sample_shape=torch.Size([L]))
+                )
+            diag = run_method_diagnostics(
+                "npepfn_misspec", _draw_misspec, theta_sbc, x_sbc,
+                num_sbc_samples, artifacts_dir, seed,
+            )
         for obs_idx in range(1, num_observations + 1):
             y_obs = task.get_observation(obs_idx)
             ref_samples = task.get_reference_posterior_samples(obs_idx)
@@ -570,7 +623,6 @@ def evaluate_calibrated_misspecification(
                     seed,
                     posterior_samples,
                 )
-                _save_posterior(artifacts_dir, "reference", obs_idx, seed, ref_samples)
             sample_metrics = _compute_sample_metrics(
                 posterior_samples, ref_samples, metrics_to_compute
             )
@@ -583,6 +635,7 @@ def evaluate_calibrated_misspecification(
                 except Exception:
                     pass
             sample_metrics["log_prob"] = log_prob_val
+            sample_metrics.update(diag)
             if artifacts_dir is not None:
                 _save_metrics(artifacts_dir, "npepfn_misspec", obs_idx, seed, sample_metrics)
             result = EvalResult(
@@ -594,6 +647,8 @@ def evaluate_calibrated_misspecification(
                 c2st=sample_metrics.get("c2st", float("nan")),
                 mmd=sample_metrics.get("mmd", float("nan")),
                 log_prob=log_prob_val,
+                sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+                tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
                 method="npepfn_misspec",
             )
             all_results.append(result)
@@ -625,6 +680,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     forward=forward,
                     log_abs_det_jac=log_abs_det_jac,
                     metrics_to_compute=metrics_to_compute,
@@ -648,6 +706,19 @@ def evaluate_calibrated_misspecification(
                 y_calib,
                 est_prior,
             )
+            diag = {}
+            if compute_sbc:
+                def _draw_mixed(xs, L):
+                    query = torch.cat(
+                        [torch.full((xs.shape[0], dim_x), float("nan")), xs], dim=1
+                    )
+                    return inverse(
+                        estimator_mixed.sample_batched(x=query, sample_shape=torch.Size([L]))
+                    )
+                diag = run_method_diagnostics(
+                    "npepfn_mixed", _draw_mixed, theta_sbc, x_sbc,
+                    num_sbc_samples, artifacts_dir, seed,
+                )
             for obs_idx in range(1, num_observations + 1):
                 y_obs = task.get_observation(obs_idx)
                 ref_samples = task.get_reference_posterior_samples(obs_idx)
@@ -682,6 +753,7 @@ def evaluate_calibrated_misspecification(
                     except Exception:
                         pass
                 sample_metrics["log_prob"] = log_prob_val
+                sample_metrics.update(diag)
                 if artifacts_dir is not None:
                     _save_metrics(artifacts_dir, "npepfn_mixed", obs_idx, seed, sample_metrics)
                 result = EvalResult(
@@ -693,6 +765,8 @@ def evaluate_calibrated_misspecification(
                     c2st=sample_metrics.get("c2st", float("nan")),
                     mmd=sample_metrics.get("mmd", float("nan")),
                     log_prob=log_prob_val,
+                    sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+                    tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
                     method="npepfn_mixed",
                 )
                 all_results.append(result)
@@ -725,6 +799,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     metrics_to_compute=metrics_to_compute,
                     training_batch_size=train_batch_size,
                 )
@@ -754,6 +831,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     metrics_to_compute=metrics_to_compute,
                     training_batch_size=train_batch_size,
                 )
@@ -784,6 +864,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     metrics_to_compute=metrics_to_compute,
                 )
             )
@@ -812,6 +895,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     metrics_to_compute=metrics_to_compute,
                     training_batch_size=train_batch_size,
                 )
@@ -843,6 +929,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     log_abs_det_jac=log_abs_det_jac,
                     metrics_to_compute=metrics_to_compute,
                 )
@@ -873,6 +962,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     concat_calib=True,
                     metrics_to_compute=metrics_to_compute,
                     training_batch_size=train_batch_size,
@@ -905,6 +997,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     concat_calib=True,
                     log_abs_det_jac=log_abs_det_jac,
                     metrics_to_compute=metrics_to_compute,
@@ -937,6 +1032,9 @@ def evaluate_calibrated_misspecification(
                     misspec_kwargs,
                     seed=seed,
                     artifacts_dir=artifacts_dir,
+                    theta_sbc=theta_sbc,
+                    x_sbc=x_sbc,
+                    num_sbc_samples=num_sbc_samples,
                     log_abs_det_jac=log_abs_det_jac,
                     metrics_to_compute=metrics_to_compute,
                     method_name="npepfn_ythetaonly_npepfn",
@@ -944,5 +1042,19 @@ def evaluate_calibrated_misspecification(
             )
         except (ValueError, RuntimeError) as e:
             all_results.extend(_nan_results("npepfn_ythetaonly_npepfn", e))
+
+    # --- Oracle ground-truth posterior log_prob (closed-form tasks only) ---
+    # Method-independent: mean log p_true(theta_ref | x_obs) at the reference
+    # samples, broadcast onto every result row as an upper-bound reference line.
+    if compute_log_prob and hasattr(task, "reference_log_prob"):
+        gt_lp = {}
+        for obs_idx in range(1, num_observations + 1):
+            try:
+                ref = task.get_reference_posterior_samples(obs_idx)
+                gt_lp[obs_idx] = float(task.reference_log_prob(ref, obs_idx).mean())
+            except Exception:
+                gt_lp[obs_idx] = float("nan")
+        for r in all_results:
+            r.gt_log_prob = gt_lp.get(r.num_observation, float("nan"))
 
     return all_results

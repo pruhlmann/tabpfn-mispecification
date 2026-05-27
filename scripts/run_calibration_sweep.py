@@ -62,8 +62,12 @@ def main(_):
                 cache_data=cfg.get("cache_data", False),
                 use_cache=cfg.get("use_cache", True),
                 augment_M=cfg.get("augment_M", 1),
-                metrics_to_compute=list(cfg.get("metrics_to_compute", ("c2st", "mmd"))),
+                metrics_to_compute=list(
+                    cfg.get("metrics_to_compute", ("c2st", "mmd", "log_prob"))
+                ),
                 train_batch_size=cfg.get("train_batch_size", 1024),
+                num_sbc=cfg.get("num_sbc", 0),
+                num_sbc_samples=cfg.get("num_sbc_samples", 1000),
             )
             for r in results:
                 r.seed = seed

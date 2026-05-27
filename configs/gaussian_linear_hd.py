@@ -21,9 +21,11 @@ def get_config():
     config.num_context = 2000
     config.use_prior_transform = False
     config.seeds = [42, 123, 512]
-    config.skip_methods = ["npepfn_mixed"]
+    config.skip_methods = ["npepfn_mixed", "fmcpe"]
     config.batch_size = 5000
     config.cache_data = True
     config.augment_M = 1
     config.train_batch_size = 1024
+    config.num_sbc = 500  # SBC/TARP test pairs from the true simulator (0 = skip)
+    config.num_sbc_samples = 1000
     return config

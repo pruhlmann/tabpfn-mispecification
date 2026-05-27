@@ -7,6 +7,7 @@ import torch
 from npe_pfn import TabPFN_Based_NPE_PFN
 from sbi.inference import FMPE
 
+from tabpfn_misspec.diagnostics import run_method_diagnostics
 from tabpfn_misspec.evaluate import EvalResult, _compute_sample_metrics, _info, _obs_line, _save_metrics
 
 
@@ -14,6 +15,17 @@ def _save_posterior(artifacts_dir, method, obs_idx, seed, samples):
     """Save posterior samples to a .pt file."""
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     torch.save(samples, artifacts_dir / f"{method}_seed{seed}_obs{obs_idx}.pt")
+
+
+def _sbi_draw_fn(posterior):
+    """draw_fn for an sbi posterior: returns samples shaped (N, L, dim)."""
+
+    def _draw(xs, L):
+        # sbi sample_batched returns (L, N, dim); transpose to (N, L, dim).
+        s = posterior.sample_batched((L,), x=xs, show_progress_bars=False)
+        return s.transpose(0, 1)
+
+    return _draw
 
 
 def evaluate_npepfn_calib_only(
@@ -32,6 +44,9 @@ def evaluate_npepfn_calib_only(
     forward=None,
     log_abs_det_jac=None,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
+    theta_sbc=None,
+    x_sbc=None,
+    num_sbc_samples=1000,
 ):
     """Baseline: NPE-PFN with only calibration (theta, y) as context.
 
@@ -49,6 +64,14 @@ def evaluate_npepfn_calib_only(
     compute_log_prob = "log_prob" in metrics_to_compute
     estimator = TabPFN_Based_NPE_PFN(prior=unbounded_prior)
     estimator.append_simulations(theta_calib_t, y_calib)
+
+    diag = {}
+    if theta_sbc is not None:
+        def _draw(xs, L):
+            return inverse(estimator.sample_batched(x=xs, sample_shape=torch.Size([L])))
+        diag = run_method_diagnostics(
+            "npepfn_calib", _draw, theta_sbc, x_sbc, num_sbc_samples, artifacts_dir, seed
+        )
 
     results = []
     for obs_idx in range(1, num_observations + 1):
@@ -79,6 +102,7 @@ def evaluate_npepfn_calib_only(
             except Exception:
                 pass
         sample_metrics["log_prob"] = log_prob_val
+        sample_metrics.update(diag)
         if artifacts_dir is not None:
             _save_metrics(artifacts_dir, "npepfn_calib", obs_idx, seed, sample_metrics)
         result = EvalResult(
@@ -90,6 +114,8 @@ def evaluate_npepfn_calib_only(
             c2st=sample_metrics.get("c2st", float("nan")),
             mmd=sample_metrics.get("mmd", float("nan")),
             log_prob=log_prob_val,
+            sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+            tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
             method="npepfn_calib",
         )
         results.append(result)
@@ -111,6 +137,9 @@ def evaluate_npe_sbi(
     seed=42,
     artifacts_dir=None,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
+    theta_sbc=None,
+    x_sbc=None,
+    num_sbc_samples=1000,
     training_batch_size=1024,
 ):
     """Baseline: standard NPE from sbi trained on calibration data.
@@ -129,6 +158,13 @@ def evaluate_npe_sbi(
     t_train = time.perf_counter() - t0
     posterior = inference.build_posterior(density_estimator)
     _info(f"Training completed ({t_train:.1f}s)")
+
+    diag = {}
+    if theta_sbc is not None:
+        diag = run_method_diagnostics(
+            "npe_sbi", _sbi_draw_fn(posterior), theta_sbc, x_sbc,
+            num_sbc_samples, artifacts_dir, seed,
+        )
 
     results = []
     for obs_idx in range(1, num_observations + 1):
@@ -153,6 +189,7 @@ def evaluate_npe_sbi(
             except Exception:
                 pass
         sample_metrics["log_prob"] = log_prob_val
+        sample_metrics.update(diag)
         if artifacts_dir is not None:
             _save_metrics(artifacts_dir, "npe_sbi", obs_idx, seed, sample_metrics)
         result = EvalResult(
@@ -164,6 +201,8 @@ def evaluate_npe_sbi(
             c2st=sample_metrics.get("c2st", float("nan")),
             mmd=sample_metrics.get("mmd", float("nan")),
             log_prob=log_prob_val,
+            sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+            tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
             method="npe_sbi",
         )
         results.append(result)
@@ -187,6 +226,9 @@ def evaluate_mf_npe(
     seed=42,
     artifacts_dir=None,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
+    theta_sbc=None,
+    x_sbc=None,
+    num_sbc_samples=1000,
     pretrain_lr=5e-4,
     finetune_lr=1e-4,
     training_batch_size=1024,
@@ -282,6 +324,13 @@ def evaluate_mf_npe(
         f"epochs={last_epoch}/{num_finetune_epochs}, bs={bs})"
     )
 
+    diag = {}
+    if theta_sbc is not None:
+        diag = run_method_diagnostics(
+            "mf_npe", _sbi_draw_fn(posterior), theta_sbc, x_sbc,
+            num_sbc_samples, artifacts_dir, seed,
+        )
+
     results = []
     for obs_idx in range(1, num_observations + 1):
         y_obs = task.get_observation(obs_idx)
@@ -305,6 +354,7 @@ def evaluate_mf_npe(
             except Exception:
                 pass
         sample_metrics["log_prob"] = log_prob_val
+        sample_metrics.update(diag)
         if artifacts_dir is not None:
             _save_metrics(artifacts_dir, "mf_npe", obs_idx, seed, sample_metrics)
         result = EvalResult(
@@ -316,6 +366,8 @@ def evaluate_mf_npe(
             c2st=sample_metrics.get("c2st", float("nan")),
             mmd=sample_metrics.get("mmd", float("nan")),
             log_prob=log_prob_val,
+            sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+            tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
             method="mf_npe",
         )
         results.append(result)
@@ -345,6 +397,9 @@ def evaluate_fmcpe(
     seed=42,
     artifacts_dir=None,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
+    theta_sbc=None,
+    x_sbc=None,
+    num_sbc_samples=1000,
     hidden=(64, 64),
     num_steps=50,
     npe_epochs=1000,
@@ -396,6 +451,15 @@ def evaluate_fmcpe(
         f"n_calib={len(theta_calib)})"
     )
 
+    diag = {}
+    if theta_sbc is not None:
+        def _draw(xs, L):
+            per = [sample_fmcpe(models, xs[i : i + 1], L, device) for i in range(xs.shape[0])]
+            return torch.stack(per, dim=0)  # (N, L, dim)
+        diag = run_method_diagnostics(
+            "fmcpe", _draw, theta_sbc, x_sbc, num_sbc_samples, artifacts_dir, seed
+        )
+
     results = []
     for obs_idx in range(1, num_observations + 1):
         y_obs = task.get_observation(obs_idx)
@@ -413,6 +477,7 @@ def evaluate_fmcpe(
         )
         log_prob_val = float("nan")
         sample_metrics["log_prob"] = log_prob_val
+        sample_metrics.update(diag)
         if artifacts_dir is not None:
             _save_metrics(artifacts_dir, "fmcpe", obs_idx, seed, sample_metrics)
         result = EvalResult(
@@ -424,6 +489,8 @@ def evaluate_fmcpe(
             c2st=sample_metrics.get("c2st", float("nan")),
             mmd=sample_metrics.get("mmd", float("nan")),
             log_prob=log_prob_val,
+            sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+            tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
             method="fmcpe",
         )
         results.append(result)
@@ -453,6 +520,9 @@ def evaluate_npepfn_y_fmpe(
     artifacts_dir=None,
     concat_calib=False,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
+    theta_sbc=None,
+    x_sbc=None,
+    num_sbc_samples=1000,
     training_batch_size=1024,
 ):
     """Train FMPE on pre-generated synthetic (theta, ỹ) data.
@@ -486,6 +556,13 @@ def evaluate_npepfn_y_fmpe(
     posterior = fmpe.build_posterior(density_estimator)
     _info(f"FMPE training completed ({t_train:.1f}s, n_train={len(theta_train)})")
 
+    diag = {}
+    if theta_sbc is not None:
+        diag = run_method_diagnostics(
+            method_name, _sbi_draw_fn(posterior), theta_sbc, x_sbc,
+            num_sbc_samples, artifacts_dir, seed,
+        )
+
     results = []
     for obs_idx in range(1, num_observations + 1):
         y_obs = task.get_observation(obs_idx)
@@ -509,6 +586,7 @@ def evaluate_npepfn_y_fmpe(
             except Exception:
                 pass
         sample_metrics["log_prob"] = log_prob_val
+        sample_metrics.update(diag)
         if artifacts_dir is not None:
             _save_metrics(artifacts_dir, method_name, obs_idx, seed, sample_metrics)
         result = EvalResult(
@@ -520,6 +598,8 @@ def evaluate_npepfn_y_fmpe(
             c2st=sample_metrics.get("c2st", float("nan")),
             mmd=sample_metrics.get("mmd", float("nan")),
             log_prob=log_prob_val,
+            sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+            tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
             method=method_name,
         )
         results.append(result)
@@ -547,6 +627,9 @@ def evaluate_npepfn_y_npepfn(
     concat_calib=False,
     log_abs_det_jac=None,
     metrics_to_compute=("c2st", "mmd", "log_prob"),
+    theta_sbc=None,
+    x_sbc=None,
+    num_sbc_samples=1000,
     method_name=None,
 ):
     """NPE-PFN trained on pre-generated synthetic (theta, ỹ) data.
@@ -580,6 +663,14 @@ def evaluate_npepfn_y_npepfn(
     estimator = TabPFN_Based_NPE_PFN(prior=unbounded_prior)
     estimator.append_simulations(theta_train, y_train)
 
+    diag = {}
+    if theta_sbc is not None:
+        def _draw(xs, L):
+            return inverse(estimator.sample_batched(x=xs, sample_shape=torch.Size([L])))
+        diag = run_method_diagnostics(
+            method_name, _draw, theta_sbc, x_sbc, num_sbc_samples, artifacts_dir, seed
+        )
+
     results = []
     for obs_idx in range(1, num_observations + 1):
         y_obs = task.get_observation(obs_idx)
@@ -609,6 +700,7 @@ def evaluate_npepfn_y_npepfn(
             except Exception:
                 pass
         sample_metrics["log_prob"] = log_prob_val
+        sample_metrics.update(diag)
         if artifacts_dir is not None:
             _save_metrics(artifacts_dir, method_name, obs_idx, seed, sample_metrics)
         result = EvalResult(
@@ -620,6 +712,8 @@ def evaluate_npepfn_y_npepfn(
             c2st=sample_metrics.get("c2st", float("nan")),
             mmd=sample_metrics.get("mmd", float("nan")),
             log_prob=log_prob_val,
+            sbc_ks=sample_metrics.get("sbc_ks", float("nan")),
+            tarp_ece=sample_metrics.get("tarp_ece", float("nan")),
             method=method_name,
         )
         results.append(result)

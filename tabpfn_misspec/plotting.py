@@ -87,7 +87,12 @@ METRIC_LABEL = {
     "c2st": r"C2ST $\downarrow$",
     "mmd": r"MMD $\downarrow$",
     "log_prob": r"Log Prob $\uparrow$",
+    "gt_log_prob": r"GT Log Prob $\uparrow$",
+    "sbc_ks": r"SBC KS $\downarrow$",
+    "tarp_ece": r"TARP coverage err $\downarrow$",
 }
+
+_PLOT_METRICS = ("c2st", "mmd", "log_prob", "gt_log_prob", "sbc_ks", "tarp_ece")
 
 
 def _style(method):
@@ -135,7 +140,7 @@ def _build_lookup(results_by_n_calib):
             method = r["method"] if isinstance(r, dict) else r.method
             observations.add(obs)
             methods.add(method)
-            for m in ("c2st", "mmd", "log_prob"):
+            for m in _PLOT_METRICS:
                 val = r.get(m, float("nan")) if isinstance(r, dict) else getattr(r, m, float("nan"))
                 lookup[(n_calib, method, obs, m)].append(val)
     sorted_n = sorted(results_by_n_calib.keys())
@@ -276,7 +281,9 @@ def plot_sweep_figure(results_by_n_calib, output_dir="results", task_name=None):
         print(f"Saved {out_path}")
 
 
-def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, output_path=None):
+def plot_posterior_pairplot(
+    samples_by_method, ref_samples, param_names=None, output_path=None, max_dims=8
+):
     """Corner-style pairplot: KDE on diagonal, scatter on lower triangle.
 
     Args:
@@ -284,8 +291,16 @@ def plot_posterior_pairplot(samples_by_method, ref_samples, param_names=None, ou
         ref_samples: (N, D) numpy array of reference posterior samples.
         param_names: Optional list of parameter names (length D).
         output_path: If set, save figure to this path.
+        max_dims: When D > max_dims, only plot the first max_dims parameters.
+            A D-by-D corner with text.usetex grows quadratically in panel count
+            and becomes impractical past ~10 dims.
     """
     _apply_rc()
+    D_full = ref_samples.shape[1]
+    if D_full > max_dims:
+        keep = slice(0, max_dims)
+        ref_samples = ref_samples[:, keep]
+        samples_by_method = {m: s[:, keep] for m, s in samples_by_method.items()}
     D = ref_samples.shape[1]
     if param_names is None:
         param_names = [rf"$\theta_{{{i + 1}}}$" for i in range(D)]
@@ -438,6 +453,46 @@ def plot_y_distributional(theta_diag, y_true, y_tilde, output_path=None):
         fig.legend(handles, labels, loc="upper right", frameon=False, fontsize=6)
     fig.subplots_adjust(hspace=0.3, wspace=0.2)
 
+    if output_path is not None:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, bbox_inches="tight")
+        print(f"Saved {output_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_sbc_tarp(artifacts_dir, method, seed, output_path=None):
+    """Plot the SBC rank histogram and TARP coverage curve for one method.
+
+    Loads ``sbc_{method}_seed{seed}.pt`` written by ``run_method_diagnostics``.
+    """
+    import torch
+
+    path = Path(artifacts_dir) / f"sbc_{method}_seed{seed}.pt"
+    if not path.exists():
+        print(f"No SBC artifact at {path}")
+        return None
+    data = torch.load(path, weights_only=True)
+    ranks = data["ranks"].numpy().reshape(-1)  # pool all dims
+    L = data["num_posterior_samples"]
+    ecp, alpha = data["ecp"].numpy(), data["alpha"].numpy()
+
+    fig, (ax_sbc, ax_tarp) = plt.subplots(1, 2, figsize=(5.5, 2.6))
+
+    ax_sbc.hist(ranks / L, bins=20, range=(0, 1), color="#4477AA", density=True)
+    ax_sbc.axhline(1.0, color="k", ls="--", lw=1.0)
+    ax_sbc.set_xlabel("normalized rank")
+    ax_sbc.set_ylabel("density")
+    ax_sbc.set_title(rf"SBC ranks (KS={data['sbc_ks']:.3f})")
+
+    ax_tarp.plot(alpha, ecp, color="#CC6677")
+    ax_tarp.plot([0, 1], [0, 1], color="k", ls="--", lw=1.0)
+    ax_tarp.set_xlabel(r"credibility level $\alpha$")
+    ax_tarp.set_ylabel("expected coverage")
+    ax_tarp.set_title(rf"TARP (err={data['tarp_ece']:.3f})")
+
+    fig.suptitle(method)
+    fig.tight_layout()
     if output_path is not None:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, bbox_inches="tight")

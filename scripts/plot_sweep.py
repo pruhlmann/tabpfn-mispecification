@@ -1,6 +1,7 @@
 """Generate plots from saved sweep JSON files."""
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -32,6 +33,11 @@ def main(_):
         print(f"No *_sweep.json files found in {input_dir}")
         return
 
+    # Map each {task}_{misspec} combo (== artifacts dir name) to the real sbibm
+    # task name, so the pairplot loop can regenerate reference posteriors when
+    # a saved reference_*.pt is missing.
+    combo_to_task = {}
+
     for sweep_file in sweep_files:
         # Extract task name from filename: {task}_{misspec_type}_sweep.json
         task_name = sweep_file.stem.rsplit("_sweep", 1)[0]
@@ -45,6 +51,7 @@ def main(_):
         # Detect whether results contain seed information
         sample_result = next(iter(raw.values()))[0]
         has_seeds = "seed" in sample_result
+        combo_to_task[task_name] = sample_result.get("task_name", task_name)
 
         if has_seeds:
             plot_fn = plot_calibration_comparison_seeds
@@ -53,6 +60,18 @@ def main(_):
 
         plot_fn(results_by_n_calib, metric="c2st", output_dir=_OUTPUT_DIR.value, task_name=task_name)
         plot_fn(results_by_n_calib, metric="mmd", output_dir=_OUTPUT_DIR.value, task_name=task_name)
+        # Optional metrics: only plot those present and non-NaN in the results.
+        for metric in ("log_prob", "sbc_ks", "tarp_ece"):
+            present = any(
+                math.isfinite(r.get(metric, float("nan")))
+                for results in results_by_n_calib.values()
+                for r in results
+            )
+            if present:
+                plot_fn(
+                    results_by_n_calib, metric=metric,
+                    output_dir=_OUTPUT_DIR.value, task_name=task_name,
+                )
 
         # Two-panel figure for papers
         plot_sweep_figure(results_by_n_calib, output_dir=_OUTPUT_DIR.value, task_name=task_name)
@@ -61,19 +80,37 @@ def main(_):
     output_dir = Path(_OUTPUT_DIR.value)
     for artifacts_root in sorted(input_dir.glob("*/artifacts")):
         task_name = artifacts_root.parent.name
+        real_task = combo_to_task.get(task_name)
+        task_obj = None  # lazily built only if a reference_*.pt is missing
         for run_dir in sorted(artifacts_root.iterdir()):
             if not run_dir.is_dir():
                 continue
             run_tag = run_dir.name  # e.g. "ncalib10_seed42"
+            seed_m = re.search(r"seed(\d+)", run_tag)
+            seed = int(seed_m.group(1)) if seed_m else None
 
-            # Discover observation indices from reference files
-            ref_files = sorted(run_dir.glob("reference_seed*_obs*.pt"))
-            for ref_file in ref_files:
-                m = re.search(r"_obs(\d+)\.pt$", ref_file.name)
-                if m is None:
-                    continue
-                obs_idx = int(m.group(1))
-                ref_samples = torch.load(ref_file, weights_only=True).numpy()
+            # Discover observation indices from any saved posterior .pt (works
+            # even when reference_*.pt is absent).
+            obs_indices = set()
+            for pt_file in run_dir.glob("*_obs*.pt"):
+                m = re.search(r"_obs(\d+)\.pt$", pt_file.name)
+                if m is not None:
+                    obs_indices.add(int(m.group(1)))
+
+            for obs_idx in sorted(obs_indices):
+                # Reference posterior: prefer the saved .pt, else regenerate it
+                # from the task (closed-form / sbibm-shipped, no models needed).
+                ref_path = run_dir / f"reference_seed{seed}_obs{obs_idx}.pt"
+                if ref_path.exists():
+                    ref_samples = torch.load(ref_path, weights_only=True).numpy()
+                elif real_task is not None:
+                    if task_obj is None:
+                        from tabpfn_misspec.tasks import get_task
+
+                        task_obj = get_task(real_task)
+                    ref_samples = task_obj.get_reference_posterior_samples(obs_idx).numpy()
+                else:
+                    continue  # no reference available, skip
 
                 # Load method posteriors for this obs
                 samples_by_method = {}

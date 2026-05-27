@@ -112,6 +112,15 @@ class GaussianLinearHD:
     def get_reference_posterior_samples(self, obs_idx):
         return self._ref_samples[obs_idx]
 
+    def reference_log_prob(self, theta, obs_idx):
+        """Closed-form log-density of the true Gaussian posterior at ``theta``."""
+        # Use the precomputed Cholesky factor: the inverted precision matrix is
+        # not exactly symmetric/PD to torch's validation tolerance.
+        dist = torch.distributions.MultivariateNormal(
+            self._post_means[obs_idx], scale_tril=self._post_chol
+        )
+        return dist.log_prob(theta)
+
 
 class GaussianMixtureHD:
     """High-dim Gaussian-mixture task with closed-form 8-mode posterior.
@@ -180,13 +189,18 @@ class GaussianMixtureHD:
                 x, num_posterior_samples, seed=obs_seed + 7 + k
             )
 
-    def _posterior_samples(self, x, n, seed):
+    def _posterior_params(self, x):
+        """Closed-form mixture posterior: component means and weights."""
         tau2 = self._tau ** 2
         means = (tau2 / self.sigma ** 2) * (x - self.anchors)  # (n_modes, D)
         logw = -((x - self.anchors) ** 2).sum(1) / (
             2 * (self.sigma_p ** 2 + self.sigma ** 2)
         )
         w = torch.softmax(logw, dim=0)
+        return means, w
+
+    def _posterior_samples(self, x, n, seed):
+        means, w = self._posterior_params(x)
         g = torch.Generator().manual_seed(seed)
         comp = torch.multinomial(w, n, replacement=True, generator=g)
         z = torch.randn(n, self.dim_parameters, generator=g)
@@ -213,6 +227,25 @@ class GaussianMixtureHD:
 
     def get_reference_posterior_samples(self, obs_idx):
         return self._ref_samples[obs_idx]
+
+    def reference_log_prob(self, theta, obs_idx):
+        """Closed-form log-density of the true mixture posterior at ``theta``.
+
+        Each component is an isotropic Gaussian N(mu_k, tau^2 I); the posterior
+        is sum_k w_k N(theta; mu_k, tau^2 I).
+        """
+        import math
+
+        x = self._x_obs[obs_idx].squeeze(0)
+        means, w = self._posterior_params(x)  # (K, D), (K,)
+        tau = self._tau
+        D = self.dim_parameters
+        diff = theta.unsqueeze(1) - means.unsqueeze(0)  # (M, K, D)
+        comp_logp = (
+            -0.5 * (diff ** 2).sum(-1) / tau ** 2
+            - D * (math.log(tau) + 0.5 * math.log(2 * math.pi))
+        )  # (M, K)
+        return torch.logsumexp(torch.log(w).unsqueeze(0) + comp_logp, dim=1)
 
 
 _CUSTOM_TASKS = {

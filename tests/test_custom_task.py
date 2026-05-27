@@ -105,6 +105,28 @@ def test_reference_posterior_matches_closed_form():
     assert rel < 0.1
 
 
+def test_gaussian_linear_hd_reference_log_prob():
+    """Oracle log_prob is finite and maximized at the true-posterior samples."""
+    task = GaussianLinearHD()
+    ref = task.get_reference_posterior_samples(1)
+    lp = task.reference_log_prob(ref, 1)
+    assert lp.shape == (ref.shape[0],)
+    assert torch.isfinite(lp).all()
+    # Shifting samples away from the posterior mode lowers the mean log-density.
+    lp_shifted = task.reference_log_prob(ref + 3.0, 1)
+    assert lp.mean() > lp_shifted.mean()
+
+
+def test_gaussian_mixture_hd_reference_log_prob():
+    task = get_task("gaussian_mixture_hd")
+    ref = task.get_reference_posterior_samples(1)
+    lp = task.reference_log_prob(ref, 1)
+    assert lp.shape == (ref.shape[0],)
+    assert torch.isfinite(lp).all()
+    lp_shifted = task.reference_log_prob(ref + 20.0, 1)
+    assert lp.mean() > lp_shifted.mean()
+
+
 def test_lotka_volterra_hd_interface():
     task = get_task("lotka_volterra_hd")
     assert task.name == "lotka_volterra_hd"
