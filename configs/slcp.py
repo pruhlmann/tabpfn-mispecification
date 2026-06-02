@@ -16,7 +16,7 @@ def get_config():
     config.num_context = 2000
     config.use_prior_transform = False
     config.seeds = [42, 123, 456]
-    config.skip_methods = ["npepfn_mixed"]
+    config.skip_methods = ["npepfn_mixed", "fmcpe"]
     config.batch_size = 2500
     config.augment_M = 1
     config.use_cache = True

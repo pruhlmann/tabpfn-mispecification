@@ -16,7 +16,7 @@ def get_config():
     config.num_context = 2000
     config.use_prior_transform = False
     config.seeds = [42, 123, 45]
-    config.skip_methods = ["npepfn_misspec", "npepfn_calib", "npepfn_mixed"]
+    config.skip_methods = ["npepfn_misspec", "npepfn_calib", "npepfn_mixed", "fmcpe"]
     config.batch_size = 1000
     config.augment_M = 1
     config.train_batch_size = 1024

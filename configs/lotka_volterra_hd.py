@@ -25,6 +25,6 @@ def get_config():
     config.cache_data = True
     config.augment_M = 1
     config.train_batch_size = 1024
-    config.num_sbc = 500  # SBC/TARP test pairs from the true simulator (0 = skip)
-    config.num_sbc_samples = 1000
+    config.num_sbc = 0  # SBC/TARP test pairs from the true simulator (0 = skip)
+    config.num_sbc_samples = 250
     return config

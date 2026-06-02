@@ -12,6 +12,8 @@ References:
       Estimators for General Inference" (https://arxiv.org/abs/2302.03026)
 """
 
+import time
+
 import torch
 from scipy.stats import kstest
 
@@ -81,7 +83,28 @@ def run_method_diagnostics(
     Returns:
         dict with ``sbc_ks`` and ``tarp_ece`` (mean |ecp - alpha|).
     """
-    post_samples = draw_fn(x_sbc, num_posterior_samples).cpu()
+    # TabPFN's batched sampler runs all (num_obs * L * oversample) draws through a
+    # single attention forward; past the CUDA grid cap (65535) this raises
+    # "invalid configuration argument". Chunk the SBC test points so each batched
+    # draw stays under the limit, then concatenate (test points are independent).
+    t0 = time.perf_counter()
+    max_rows_per_batch = 40_000  # headroom below 65535 for the 1.5x rejection oversample
+    chunk = max(1, max_rows_per_batch // max(num_posterior_samples, 1))
+    if x_sbc.shape[0] <= chunk:
+        post_samples = draw_fn(x_sbc, num_posterior_samples).cpu()
+    else:
+        post_samples = torch.cat(
+            [
+                draw_fn(x_sbc[i : i + chunk], num_posterior_samples).cpu()
+                for i in range(0, x_sbc.shape[0], chunk)
+            ],
+            dim=0,
+        )
+    t_sbc = time.perf_counter() - t0
+    print(
+        f"  [{method}] SBC/TARP draws: {t_sbc:.1f}s "
+        f"(N={x_sbc.shape[0]}, L={num_posterior_samples})"
+    )
     thetas = theta_sbc.cpu()
 
     ranks = compute_sbc_ranks(post_samples, thetas)

@@ -38,6 +38,9 @@ def _detail(msg):
 def _obs_line(method, obs_idx, metrics_dict, extra=""):
     parts = [f"obs {obs_idx}:"]
     for k, v in metrics_dict.items():
+        # SBC/TARP are opt-in (num_sbc>0); skip when not computed (NaN).
+        if k in ("sbc_ks", "tarp_ece") and isinstance(v, float) and v != v:
+            continue
         if k == "mmd":
             parts.append(f"{k.upper()}={v:.4f}")
         else:
@@ -218,7 +221,7 @@ def _load_cached_results(
                 method=method,
             )
             results.append(result)
-            _obs_line(method, obs_idx, {"c2st": result.c2st, "mmd": result.mmd}, "(cached)")
+            _obs_line(method, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece}, "(cached)")
             continue
 
         # Fall back to recomputing from posterior samples
@@ -242,7 +245,7 @@ def _load_cached_results(
             method=method,
         )
         results.append(result)
-        _obs_line(method, obs_idx, {"c2st": result.c2st, "mmd": result.mmd}, "(cached)")
+        _obs_line(method, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece}, "(cached)")
     return results
 
 
@@ -655,7 +658,7 @@ def evaluate_calibrated_misspecification(
             _obs_line(
                 "npepfn_misspec",
                 obs_idx,
-                {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob},
+                {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece},
                 f"({t_inference:.1f}s)",
             )
 
@@ -773,7 +776,7 @@ def evaluate_calibrated_misspecification(
                 _obs_line(
                     "npepfn_mixed",
                     obs_idx,
-                    {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob},
+                    {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece},
                     f"({t_inference:.1f}s)",
                 )
         except (ValueError, RuntimeError) as e:

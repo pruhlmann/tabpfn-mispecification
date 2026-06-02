@@ -16,7 +16,7 @@ def get_config():
     config.num_context = 2000
     config.use_prior_transform = False
     config.seeds = [42, 123, 456]
-    config.skip_methods = ["npepfn_mixed"]  # no expensive simulator for synthetic y
+    config.skip_methods = ["npepfn_mixed", "fmcpe"]  # no expensive simulator for synthetic y
     config.augment_M = 1
     config.batch_size = 1500
     config.cache_data = True

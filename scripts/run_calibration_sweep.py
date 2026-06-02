@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import torch
 from absl import app, flags
 from ml_collections import config_flags
 
@@ -12,6 +13,9 @@ _CONFIG = config_flags.DEFINE_config_file(
     "config", "configs/experiment.py", "Path to experiment config."
 )
 _OUTPUT_DIR = flags.DEFINE_string("output_dir", "results", "Output directory.")
+_ALLOW_CPU = flags.DEFINE_bool(
+    "allow_cpu", False, "Allow running without a GPU (TabPFN is ~100x slower on CPU)."
+)
 _CALIB_SIZES = flags.DEFINE_list(
     "calib_sizes",
     None,
@@ -20,7 +24,24 @@ _CALIB_SIZES = flags.DEFINE_list(
 )
 
 
+def _check_device():
+    """Print the compute device and fail fast if no GPU (unless --allow_cpu)."""
+    if torch.cuda.is_available():
+        names = ", ".join(
+            torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+        )
+        print(f"[device] CUDA available: {torch.cuda.device_count()} GPU(s) — {names}")
+    else:
+        print("[device] CUDA NOT available — TabPFN will run on CPU (~100x slower)")
+        if not _ALLOW_CPU.value:
+            raise RuntimeError(
+                "No GPU detected. Request one (e.g. --gres=gpu:1) or pass "
+                "--allow_cpu to run on CPU anyway."
+            )
+
+
 def main(_):
+    _check_device()
     cfg = _CONFIG.value
     out_dir = Path(_OUTPUT_DIR.value)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -63,7 +84,7 @@ def main(_):
                 use_cache=cfg.get("use_cache", True),
                 augment_M=cfg.get("augment_M", 1),
                 metrics_to_compute=list(
-                    cfg.get("metrics_to_compute", ("c2st", "mmd", "log_prob"))
+                    cfg.get("metrics_to_compute", ("c2st", "mmd"))
                 ),
                 train_batch_size=cfg.get("train_batch_size", 1024),
                 num_sbc=cfg.get("num_sbc", 0),

@@ -71,12 +71,18 @@ def c2st(
     return torch.from_numpy(np.atleast_1d(scores))
 
 
-def mmd(X, Y):
-    """Maximum mean discrepancy with Gaussian kernel (median heuristic).
+def mmd(X, Y, alpha: float = 1.0):
+    """Maximum mean discrepancy with rational quadratic kernel (median heuristic).
+
+    Uses the rational quadratic kernel
+    ``k(x, y) = (1 + ||x - y||^2 / (2 * alpha * l^2)) ** (-alpha)``,
+    a scale mixture of RBF kernels that recovers the Gaussian kernel as
+    ``alpha -> inf``. The length scale ``l`` is set by the median heuristic.
 
     Args:
         X: Tensor or array of shape (N, D).
         Y: Tensor or array of shape (M, D).
+        alpha: Rational quadratic mixture parameter (> 0).
 
     Returns:
         MMD^2 estimate (float).
@@ -89,15 +95,18 @@ def mmd(X, Y):
     X = X.detach().float()
     Y = Y.detach().float()
 
-    # Median heuristic for bandwidth
+    # Median heuristic for the length scale l (l^2 = median squared distance)
     XY = torch.cat([X, Y], dim=0)
     dists = torch.cdist(XY, XY)
     median_dist = dists[dists > 0].median()
-    gamma = 1.0 / (2.0 * median_dist**2)
+    denom = 2.0 * alpha * median_dist**2
 
-    K_XX = torch.exp(-gamma * torch.cdist(X, X) ** 2)
-    K_YY = torch.exp(-gamma * torch.cdist(Y, Y) ** 2)
-    K_XY = torch.exp(-gamma * torch.cdist(X, Y) ** 2)
+    def rq(a, b):
+        return (1.0 + torch.cdist(a, b) ** 2 / denom) ** (-alpha)
+
+    K_XX = rq(X, X)
+    K_YY = rq(Y, Y)
+    K_XY = rq(X, Y)
 
     n = X.shape[0]
     m = Y.shape[0]

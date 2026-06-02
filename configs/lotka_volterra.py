@@ -14,7 +14,7 @@ def get_config():
     config.seed = 42
     config.num_calibration = 50
     config.num_context = 2000
-    config.skip_methods = ["npepfn_mixed"]
+    config.skip_methods = ["npepfn_mixed", "fmcpe"]
     config.use_prior_transform = False
     config.seeds = (42, 123, 512)
     config.batch_size = 2500

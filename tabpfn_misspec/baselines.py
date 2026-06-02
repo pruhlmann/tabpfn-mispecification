@@ -119,7 +119,7 @@ def evaluate_npepfn_calib_only(
             method="npepfn_calib",
         )
         results.append(result)
-        _obs_line("npepfn_calib", obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
+        _obs_line("npepfn_calib", obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece}, f"({t_inference:.1f}s)")
 
     return results
 
@@ -206,7 +206,7 @@ def evaluate_npe_sbi(
             method="npe_sbi",
         )
         results.append(result)
-        _obs_line("npe_sbi", obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
+        _obs_line("npe_sbi", obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece}, f"({t_inference:.1f}s)")
 
     return results
 
@@ -374,7 +374,7 @@ def evaluate_mf_npe(
         _obs_line(
             "mf_npe",
             obs_idx,
-            {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob},
+            {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece},
             f"({t_inference:.1f}s)",
         )
 
@@ -497,7 +497,7 @@ def evaluate_fmcpe(
         _obs_line(
             "fmcpe",
             obs_idx,
-            {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob},
+            {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece},
             f"({t_inference:.1f}s)",
         )
 
@@ -603,7 +603,7 @@ def evaluate_npepfn_y_fmpe(
             method=method_name,
         )
         results.append(result)
-        _obs_line(method_name, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
+        _obs_line(method_name, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece}, f"({t_inference:.1f}s)")
 
     return results
 
@@ -717,6 +717,6 @@ def evaluate_npepfn_y_npepfn(
             method=method_name,
         )
         results.append(result)
-        _obs_line(method_name, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob}, f"({t_inference:.1f}s)")
+        _obs_line(method_name, obs_idx, {"c2st": result.c2st, "mmd": result.mmd, "log_prob": result.log_prob, "sbc_ks": result.sbc_ks, "tarp_ece": result.tarp_ece}, f"({t_inference:.1f}s)")
 
     return results

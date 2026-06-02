@@ -17,6 +17,7 @@ from tabpfn_misspec.plotting import (
     plot_calibration_comparison,
     plot_calibration_comparison_seeds,
     plot_posterior_pairplot,
+    plot_sbc_tarp,
     plot_sweep_figure,
     plot_y_distributional,
 )
@@ -61,7 +62,7 @@ def main(_):
         plot_fn(results_by_n_calib, metric="c2st", output_dir=_OUTPUT_DIR.value, task_name=task_name)
         plot_fn(results_by_n_calib, metric="mmd", output_dir=_OUTPUT_DIR.value, task_name=task_name)
         # Optional metrics: only plot those present and non-NaN in the results.
-        for metric in ("log_prob", "sbc_ks", "tarp_ece"):
+        for metric in ("log_prob", "gt_log_prob", "sbc_ks", "tarp_ece"):
             present = any(
                 math.isfinite(r.get(metric, float("nan")))
                 for results in results_by_n_calib.values()
@@ -125,6 +126,19 @@ def main(_):
                 if samples_by_method:
                     out_path = output_dir / task_name / "pairplots" / f"{run_tag}_obs{obs_idx}.pdf"
                     plot_posterior_pairplot(samples_by_method, ref_samples, output_path=out_path)
+
+            # SBC + TARP per-method diagnostic figure
+            for sbc_file in sorted(run_dir.glob("sbc_*_seed*.pt")):
+                if sbc_file.name.startswith("sbc_testset_"):
+                    continue  # shared SBC (theta, x) set, not per-method
+                m = re.match(r"sbc_(.+)_seed(\d+)\.pt$", sbc_file.name)
+                if m is None:
+                    continue
+                method, sbc_seed = m.group(1), int(m.group(2))
+                out_path = (
+                    output_dir / task_name / "sbc_tarp" / f"{run_tag}_{method}.pdf"
+                )
+                plot_sbc_tarp(run_dir, method, sbc_seed, output_path=out_path)
 
             # Distributional y-diagnostics
             for y_diag_file in sorted(run_dir.glob("y_dist_diag_seed*.pt")):
